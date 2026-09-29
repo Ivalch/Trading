@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using TradingBacktest.Indicators;
@@ -44,7 +43,6 @@ namespace TradingBacktest.ViewModels
         private string _errorText;
         private string _strategyHint;
         private BacktestResult _result;
-        private IIndicator _indicatorToAdd;
         private StrategyViewModel _selectedStrategy;
         private ObservableCollection<StatItem> _stats = new ObservableCollection<StatItem>();
         private ObservableCollection<string> _availableTickers = new ObservableCollection<string>();
@@ -74,17 +72,13 @@ namespace TradingBacktest.ViewModels
             _selectedStrategy = FindStrategy(_settings.Get(KeyStrategy)) ?? Strategies[0];
             _strategyHint = _selectedStrategy.Description;
 
-            AvailableIndicators = IndicatorCatalog.All;
-            _indicatorToAdd = AvailableIndicators[0];
-
+            IndicatorChoices = IndicatorCatalog.Choices;
             RestoreIndicators(_settings.Get(KeyIndicators));
 
             StartCommand = new RelayCommand(OnStart, () => !_isBusy);
             BrowseFolderCommand = new RelayCommand(OnBrowseFolder);
             RefreshTickersCommand = new RelayCommand(ReloadTickers);
             PeriodCommand = new RelayCommand(OnPeriodPreset);
-            AddIndicatorCommand = new RelayCommand(OnAddIndicator);
-            RemoveIndicatorCommand = new RelayCommand(OnRemoveIndicator);
 
             ReloadTickers();
 
@@ -181,22 +175,16 @@ namespace TradingBacktest.ViewModels
 
         // ------------------------------------------------- indicators and strategy
 
-        /// <summary>Indicator types that can be added, one row per type.</summary>
-        public IList<IIndicator> AvailableIndicators { get; private set; }
-
-        /// <summary>The indicator the "Add" button will put on the list.</summary>
-        public IIndicator IndicatorToAdd
-        {
-            get { return _indicatorToAdd; }
-            set { SetProperty(ref _indicatorToAdd, value); }
-        }
+        /// <summary>What a slot can hold: the empty entry plus one per indicator type.</summary>
+        public IList<IndicatorChoice> IndicatorChoices { get; private set; }
 
         /// <summary>
-        /// The indicator list, in the order the engine will hand it to the rule. A rule
-        /// refers to its series by position here, so reordering changes the meaning of a
-        /// crossover - the list is a parameter, not a cosmetic detail.
+        /// The two indicator slots. Order matters - a rule refers to indicators by
+        /// position, so slot 1 is the fast one in a crossover.
         /// </summary>
-        public ObservableCollection<IndicatorViewModel> Indicators { get; private set; }
+        public IndicatorViewModel Indicator1 { get; private set; }
+
+        public IndicatorViewModel Indicator2 { get; private set; }
 
         public ObservableCollection<StrategyViewModel> Strategies { get; private set; }
 
@@ -228,11 +216,6 @@ namespace TradingBacktest.ViewModels
 
         /// <summary>Takes a parameter of "1Y", "3Y", "5Y" or "All".</summary>
         public ICommand PeriodCommand { get; private set; }
-
-        public ICommand AddIndicatorCommand { get; private set; }
-
-        /// <summary>Takes the row to remove as parameter.</summary>
-        public ICommand RemoveIndicatorCommand { get; private set; }
 
         public BacktestResult Result
         {
@@ -287,26 +270,6 @@ namespace TradingBacktest.ViewModels
             ReloadTickers();
         }
 
-        private void OnAddIndicator()
-        {
-            if (_indicatorToAdd == null)
-            {
-                return;
-            }
-
-            Indicators.Add(new IndicatorViewModel(_indicatorToAdd));
-            OnPropertyChanged("IndicatorListHint");
-        }
-
-        private void OnRemoveIndicator(object parameter)
-        {
-            var row = parameter as IndicatorViewModel;
-            if (row != null)
-            {
-                Indicators.Remove(row);
-                OnPropertyChanged("IndicatorListHint");
-            }
-        }
 
         private void OnPeriodPreset(object parameter)
         {
@@ -526,38 +489,63 @@ namespace TradingBacktest.ViewModels
 
         private IList<IIndicator> BuildIndicators()
         {
-            var indicators = new List<IIndicator>();
-            for (int i = 0; i < Indicators.Count; i++)
-            {
-                indicators.Add(Indicators[i].Build());
-            }
-
+            var indicators = new List<IIndicator>(2);
+            AddIfFilled(indicators, Indicator1);
+            AddIfFilled(indicators, Indicator2);
             return indicators;
         }
 
+        private static void AddIfFilled(List<IIndicator> indicators, IndicatorViewModel slot)
+        {
+            if (slot == null)
+            {
+                return;
+            }
+
+            IIndicator built = slot.Build();
+            if (built != null)
+            {
+                indicators.Add(built);
+            }
+        }
+
+        /// <summary>
+        /// Rebuilds the two slots from the settings file. Anything missing or unrecognised
+        /// falls back to the default pair, which is what the crossover rule expects.
+        /// </summary>
         private void RestoreIndicators(string serialized)
         {
-            Indicators = new ObservableCollection<IndicatorViewModel>();
+            Indicator1 = null;
+            Indicator2 = null;
 
             if (!string.IsNullOrEmpty(serialized))
             {
-                string[] parts = serialized.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-                for (int i = 0; i < parts.Length; i++)
+                string[] parts = serialized.Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < parts.Length && i < 2; i++)
                 {
-                    IndicatorViewModel row = IndicatorViewModel.Deserialize(parts[i].Trim());
-                    if (row != null)
+                    IndicatorViewModel slot = IndicatorViewModel.Deserialize(parts[i].Trim());
+                    if (i == 0)
                     {
-                        Indicators.Add(row);
+                        Indicator1 = slot;
+                    }
+                    else
+                    {
+                        Indicator2 = slot;
                     }
                 }
             }
 
-            if (Indicators.Count == 0)
+            // A crossover needs two averages; anything less would open on a dead error.
+            if (Indicator1 == null || !Indicator1.HasIndicator)
             {
-                // Default setup: a fast and a slow average, which is what the crossover
-                // rule expects in the first two positions.
-                Indicators.Add(new IndicatorViewModel(new SmaIndicator(20)));
-                Indicators.Add(new IndicatorViewModel(new SmaIndicator(60)));
+                Indicator1 = new IndicatorViewModel(IndicatorCatalog.FindChoice(new SmaIndicator().Name));
+                Indicator1.Period = 20;
+            }
+
+            if (Indicator2 == null || !Indicator2.HasIndicator)
+            {
+                Indicator2 = new IndicatorViewModel(IndicatorCatalog.FindChoice(new SmaIndicator().Name));
+                Indicator2.Period = 60;
             }
         }
 
@@ -600,23 +588,14 @@ namespace TradingBacktest.ViewModels
 
         private void SaveSettings(double cost, DateTime from, DateTime to)
         {
-            var text = new StringBuilder();
-            for (int i = 0; i < Indicators.Count; i++)
-            {
-                if (i > 0)
-                {
-                    text.Append(';');
-                }
-
-                text.Append(Indicators[i].Serialize());
-            }
+            string indicators = Indicator1.Serialize() + "|" + Indicator2.Serialize();
 
             _settings.Set(KeyDirectory, _dataDirectory);
             _settings.Set(KeyTicker, _ticker == null ? null : _ticker.Trim());
             _settings.Set(KeyCost, cost);
             _settings.Set(KeyFrom, from);
             _settings.Set(KeyTo, to);
-            _settings.Set(KeyIndicators, text.ToString());
+            _settings.Set(KeyIndicators, indicators);
             _settings.Set(KeyStrategy, _selectedStrategy == null ? null : _selectedStrategy.Serialize());
             _settings.Save();
         }

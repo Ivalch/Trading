@@ -3,8 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- Toggles the strategy look-back box on rules that have one. -->
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <!-- One height for every input, so a row of controls lines up instead of
+             stepping up and down with the default metrics of each control template. The
+             font is set on each input style too, because the DatePicker hands its text to
+             an internal TextBox that no longer picks up the keyed TextBox style. -->
+        <sys:Double x:Key="ControlHeight" xmlns:sys="clr-namespace:System;assembly=mscorlib">24</sys:Double>
+
         <SolidColorBrush x:Key="TextBrush" Color="#FF1F2933" />
         <SolidColorBrush x:Key="MutedTextBrush" Color="#FF6B7683" />
         <SolidColorBrush x:Key="AccentBrush" Color="#FF1E88E5" />
@@ -12,38 +16,67 @@
         <SolidColorBrush x:Key="ErrorBrush" Color="#FFC62828" />
         <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFFFF" />
 
+        <!-- Toggles the strategy look-back box on rules that have one. -->
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="FontSize" Value="12.5" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
-        <Style TargetType="TextBox">
+        <!-- ============================ inputs ============================ -->
+
+        <!--
+          Keyed, not implicit on purpose: an implicit TextBox style would also reach the
+          box inside a DatePicker and an editable ComboBox, and its fixed Height would then
+          fight the outer control's template. The chart's own fields opt in instead.
+        -->
+        <Style x:Key="InputTextBox" TargetType="TextBox">
+            <Setter Property="Height" Value="{StaticResource ControlHeight}" />
             <Setter Property="Background" Value="#FFFFFFFF" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="BorderBrush" Value="#FFBFC7D0" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="6,4" />
-            <Setter Property="MinWidth" Value="70" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-
-        <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="6,3" />
-            <Setter Property="MinWidth" Value="150" />
+            <Setter Property="Padding" Value="6,0" />
+            <!-- No MinWidth on purpose: it used to win over an explicit Width and push the
+                 narrow fields (cost, lookback, periods) out of their column. -->
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="12.5" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
 
         <Style TargetType="DatePicker">
-            <Setter Property="Margin" Value="0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Height" Value="{StaticResource ControlHeight}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Width" Value="126" />
+            <!-- These two reach the text box inside the DatePicker template, which no
+                 longer picks up the keyed TextBox style. Without them the date renders in
+                 the theme's smaller default font. -->
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         </Style>
 
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="{StaticResource ControlHeight}" />
+            <Setter Property="Padding" Value="6,0" />
+            <!-- Same trap as the TextBox: a MinWidth here wins over the explicit Width of the
+                 rule drop-down and shoves the look-back box out of its column. -->
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+
         <Style TargetType="Button">
+            <Setter Property="Height" Value="{StaticResource ControlHeight}" />
             <Setter Property="Background" Value="#FF1E88E5" />
             <Setter Property="Foreground" Value="#FFFFFFFF" />
             <Setter Property="BorderBrush" Value="#FF1976D2" />
-            <Setter Property="Padding" Value="16,6" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
             <Setter Property="FontSize" Value="12.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
@@ -82,19 +115,35 @@
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="BorderBrush" Value="#FFBFC7D0" />
             <Setter Property="FontWeight" Value="Normal" />
-            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Padding" Value="12,0" />
         </Style>
 
         <Style x:Key="ChipButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
-            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Width" Value="36" />
             <Setter Property="FontSize" Value="12" />
         </Style>
 
+        <!-- ============================ form ============================ -->
+
+        <!-- Label on the left of a field row; it sits on the control's centre line. -->
         <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+
+        <!-- For a label that sits beside its control rather than above it. -->
+        <Style x:Key="InlineLabel" TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
+            <Setter Property="Margin" Value="5,0,5,0" />
+        </Style>
+
+
+        <Style x:Key="Hint" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
             <Setter Property="FontSize" Value="11.5" />
             <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Margin" Value="0,0,0,2" />
         </Style>
     </Application.Resources>
 </Application>

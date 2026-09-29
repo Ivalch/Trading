@@ -4,10 +4,10 @@
         xmlns:controls="clr-namespace:TradingBacktest.Controls"
         xmlns:viewModels="clr-namespace:TradingBacktest.ViewModels"
         Title="Trading Backtest"
-        Height="820"
-        Width="1280"
+        Height="800"
+        Width="1330"
         MinHeight="560"
-        MinWidth="960"
+        MinWidth="1300"
         Background="#FFF4F6F8"
         TextOptions.TextFormattingMode="Display"
         UseLayoutRounding="True">
@@ -22,148 +22,160 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- ============================ settings ============================ -->
+        <!--
+          Settings. Deliberately kept to two short rows: the chart is the point of the
+          window, so the panel above it gets as little height as it can. One shared column
+          grid keeps every label and control aligned, and every input shares the single
+          ControlHeight so nothing steps up or down.
+        -->
         <Border Grid.Row="0"
                 Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource LineBrush}"
                 BorderThickness="1"
                 CornerRadius="4"
-                Padding="12">
-            <StackPanel>
-                <!-- Row 1: data and cost -->
-                <WrapPanel>
-                    <StackPanel Margin="0,0,18,10" VerticalAlignment="Top">
-                        <TextBlock Text="Ticker" Style="{StaticResource FieldLabel}" />
-                        <ComboBox Width="170"
-                                  IsEditable="True"
-                                  StaysOpenOnEdit="True"
-                                  IsTextSearchEnabled="True"
-                                  ItemsSource="{Binding AvailableTickers}"
-                                  Text="{Binding Ticker, UpdateSourceTrigger=PropertyChanged}"
-                                  VerticalContentAlignment="Center" />
-                    </StackPanel>
+                Padding="12,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="240" />
+                    <ColumnDefinition Width="310" />
+                    <ColumnDefinition Width="290" />
+                    <ColumnDefinition Width="172" />
+                    <ColumnDefinition Width="70" />
+                    <ColumnDefinition Width="108" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                    <StackPanel Margin="0,0,18,10" VerticalAlignment="Top">
-                        <TextBlock Text="Data folder" Style="{StaticResource FieldLabel}" />
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Width="300"
-                                     Text="{Binding DataDirectory, UpdateSourceTrigger=PropertyChanged}" />
-                            <Button Content="Browse..."
-                                    Style="{StaticResource SecondaryButton}"
-                                    Margin="6,0,0,0"
-                                    Command="{Binding BrowseFolderCommand}"
-                                    IsEnabled="{Binding CanBrowse}" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <StackPanel Margin="0,0,18,10" VerticalAlignment="Top">
-                        <TextBlock Text="Period" Style="{StaticResource FieldLabel}" />
-                        <StackPanel Orientation="Horizontal">
-                            <DatePicker Width="125" SelectedDate="{Binding FromDate}" ToolTip="First day of the tested period" />
-                            <TextBlock Text="to" Margin="6,0,6,0" Foreground="{StaticResource MutedTextBrush}" />
-                            <DatePicker Width="125" SelectedDate="{Binding ToDate}" ToolTip="Last day of the tested period" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <StackPanel Margin="0,0,18,10" VerticalAlignment="Top">
-                        <TextBlock Text="Quick period" Style="{StaticResource FieldLabel}" />
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="1Y" Style="{StaticResource ChipButton}" Command="{Binding PeriodCommand}" CommandParameter="1Y" />
-                            <Button Content="3Y" Style="{StaticResource ChipButton}" Margin="4,0,0,0" Command="{Binding PeriodCommand}" CommandParameter="3Y" />
-                            <Button Content="5Y" Style="{StaticResource ChipButton}" Margin="4,0,0,0" Command="{Binding PeriodCommand}" CommandParameter="5Y" />
-                            <Button Content="All" Style="{StaticResource ChipButton}" Margin="4,0,0,0" Command="{Binding PeriodCommand}" CommandParameter="All" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <StackPanel Margin="0,0,18,10" VerticalAlignment="Top">
-                        <TextBlock Text="Cost of operation, %" Style="{StaticResource FieldLabel}" />
-                        <TextBox Width="90"
-                                 Text="{Binding CostText, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Commission, spread and tax charged on each buy and each sell, in percent" />
-                    </StackPanel>
-
-                    <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom">
-                        <TextBlock Text=" " />
-                        <Button Content="Start" MinWidth="110" Command="{Binding StartCommand}" />
-                    </StackPanel>
-                </WrapPanel>
-
-                <!-- Row 2: the buy/sell rule -->
-                <WrapPanel Margin="0,4,0,0">
-                    <StackPanel Margin="0,0,18,0" VerticalAlignment="Top">
-                        <TextBlock Text="Buy/sell rule" Style="{StaticResource FieldLabel}" />
-                        <StackPanel Orientation="Horizontal">
-                            <ComboBox Width="200"
-                                      ItemsSource="{Binding Strategies}"
-                                      SelectedItem="{Binding SelectedStrategy}"
-                                      DisplayMemberPath="Name"
-                                      VerticalContentAlignment="Center" />
-                            <TextBox Width="46"
-                                     Margin="6,0,0,0"
-                                     Text="{Binding SelectedStrategy.LookbackText, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Lookback used by rules that have one"
-                                     Visibility="{Binding SelectedStrategy.HasLookback, Converter={StaticResource BoolToVis}}" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <StackPanel Margin="0,0,18,0" VerticalAlignment="Top">
-                        <TextBlock Text="Indicators" Style="{StaticResource FieldLabel}" />
-                        <StackPanel Orientation="Horizontal">
-                            <ComboBox Width="140"
-                                      ItemsSource="{Binding AvailableIndicators}"
-                                      SelectedItem="{Binding IndicatorToAdd}"
-                                      DisplayMemberPath="Name"
-                                      VerticalContentAlignment="Center" />
-                            <Button Content="Add"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Margin="6,0,0,0"
-                                    Command="{Binding AddIndicatorCommand}" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <ItemsControl ItemsSource="{Binding Indicators}" VerticalAlignment="Center" Margin="0,0,0,2">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#FFF2F5F8" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="3" Margin="0,0,6,0" Padding="6,3">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding Label}" MinWidth="70" />
-                                        <TextBlock Text="period" Foreground="{StaticResource MutedTextBrush}" Margin="8,0,4,0" FontSize="11.5" />
-                                        <TextBox Width="40" Text="{Binding PeriodText, UpdateSourceTrigger=LostFocus}" />
-                                        <Button Content="x"
-                                                Style="{StaticResource ChipButton}"
-                                                Margin="6,0,0,0"
-                                                Padding="6,1"
-                                                Command="{Binding DataContext.RemoveIndicatorCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding}" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </WrapPanel>
-
-                <!-- Row 3: messages and hints -->
-                <StackPanel Margin="0,8,0,0">
-                    <TextBlock Text="{Binding ErrorText}" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                <!-- row 0: data -->
+                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,5">
+                    <TextBlock Text="Ticker" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding AvailableTickers}"
+                              IsEditable="True"
+                              StaysOpenOnEdit="True"
+                              IsTextSearchEnabled="True"
+                              Text="{Binding Ticker, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <TextBlock Text="{Binding TickerHint}" Foreground="{StaticResource MutedTextBrush}" FontSize="11.5" />
-                    <TextBlock Text="  |  " Foreground="{StaticResource LineBrush}" />
-                    <TextBlock Text="{Binding DirectoryHint}" Foreground="{StaticResource MutedTextBrush}" FontSize="11.5" />
-                    <TextBlock Text="  |  " Foreground="{StaticResource LineBrush}" />
-                    <TextBlock Text="{Binding StrategyHint}" Foreground="{StaticResource MutedTextBrush}" FontSize="11.5" TextWrapping="Wrap" />
+                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,8,5">
+                    <TextBlock Text="Data folder" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox Style="{StaticResource InputTextBox}" Width="214"
+                                 Text="{Binding DataDirectory, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Content="Browse..."
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="6,0,0,0"
+                                Command="{Binding BrowseFolderCommand}"
+                                IsEnabled="{Binding CanBrowse}" />
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
+
+                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,8,5">
+                    <TextBlock Text="Period" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <DatePicker SelectedDate="{Binding FromDate}" ToolTip="First day of the tested period" />
+                        <TextBlock Text="to" Style="{StaticResource InlineLabel}" />
+                        <DatePicker SelectedDate="{Binding ToDate}" ToolTip="Last day of the tested period" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,8,5">
+                    <TextBlock Text="Quick period" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="1Y" Style="{StaticResource ChipButton}" Command="{Binding PeriodCommand}" CommandParameter="1Y" />
+                        <Button Content="3Y" Style="{StaticResource ChipButton}" Margin="6,0,0,0" Command="{Binding PeriodCommand}" CommandParameter="3Y" />
+                        <Button Content="5Y" Style="{StaticResource ChipButton}" Margin="6,0,0,0" Command="{Binding PeriodCommand}" CommandParameter="5Y" />
+                        <Button Content="All" Style="{StaticResource ChipButton}" Margin="6,0,0,0" Command="{Binding PeriodCommand}" CommandParameter="All" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,8,5">
+                    <TextBlock Text="Cost, %" Style="{StaticResource FieldLabel}"
+                               ToolTip="Commission, spread and tax charged on each buy and each sell, in percent" />
+                    <TextBox Style="{StaticResource InputTextBox}" Width="58"
+                             Text="{Binding CostText, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+
+                <Button Grid.Row="0"
+                        Grid.Column="5"
+                        Grid.ColumnSpan="2"
+                        Content="Start"
+                        MinWidth="104"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,0,5"
+                        Command="{Binding StartCommand}" />
+
+                <!-- row 1: what to trade it with -->
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
+                    <TextBlock Text="Buy/sell rule" Style="{StaticResource FieldLabel}" />
+                    <StackPanel Orientation="Horizontal">
+                        <ComboBox Width="140"
+                                  ItemsSource="{Binding Strategies}"
+                                  SelectedItem="{Binding SelectedStrategy}"
+                                  DisplayMemberPath="Name" />
+                        <TextBlock Text="bars"
+                                   Style="{StaticResource InlineLabel}"
+                                   Visibility="{Binding SelectedStrategy.HasLookback, Converter={StaticResource BoolToVis}}" />
+                        <TextBox Style="{StaticResource InputTextBox}" Width="44"
+                                 Text="{Binding SelectedStrategy.LookbackText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="How many bars back the rule looks"
+                                 Visibility="{Binding SelectedStrategy.HasLookback, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,8,0">
+                    <TextBlock Text="Indicators" Style="{StaticResource FieldLabel}" />
+                    <!-- Two equal star columns, so the slots stay parallel. -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,8,0">
+                            <ComboBox Width="128"
+                                      ItemsSource="{Binding IndicatorChoices}"
+                                      SelectedItem="{Binding Indicator1.Choice}"
+                                      DisplayMemberPath="Name"
+                                      ToolTip="{Binding Indicator1.ChoiceName}" />
+                            <TextBlock Text="period" Margin="6,0,4,0" Style="{StaticResource Hint}" />
+                            <TextBox Style="{StaticResource InputTextBox}" Width="42" Text="{Binding Indicator1.PeriodText, UpdateSourceTrigger=LostFocus}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <ComboBox Width="128"
+                                      ItemsSource="{Binding IndicatorChoices}"
+                                      SelectedItem="{Binding Indicator2.Choice}"
+                                      DisplayMemberPath="Name"
+                                      ToolTip="{Binding Indicator2.ChoiceName}" />
+                            <TextBlock Text="period" Margin="6,0,4,0" Style="{StaticResource Hint}" />
+                            <TextBox Style="{StaticResource InputTextBox}" Width="42" Text="{Binding Indicator2.PeriodText, UpdateSourceTrigger=LostFocus}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <!-- row 2: one thin line of feedback -->
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,7,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding ErrorText}" Foreground="{StaticResource ErrorBrush}" />
+                        <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedTextBrush}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <TextBlock Text="{Binding TickerHint}" Style="{StaticResource Hint}" />
+                        <TextBlock Text="  |  " Style="{StaticResource Hint}" />
+                        <TextBlock Text="{Binding DirectoryHint}" Style="{StaticResource Hint}" />
+                        <TextBlock Text="  |  " Style="{StaticResource Hint}" />
+                        <TextBlock Text="{Binding StrategyHint}" Style="{StaticResource Hint}" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- ============================== chart ============================== -->
+        <!-- CHART -->
         <Border Grid.Row="1"
                 Margin="0,10,0,0"
                 Background="{StaticResource PanelBrush}"
@@ -173,7 +185,7 @@
             <controls:BacktestChart Result="{Binding Result}" Margin="6" />
         </Border>
 
-        <!-- ============================= summary ============================= -->
+        <!-- SUMMARY -->
         <Border Grid.Row="2"
                 Margin="0,10,0,0"
                 Background="{StaticResource PanelBrush}"
@@ -191,7 +203,7 @@
                     <DataTemplate>
                         <Border Margin="0,2,0,2" Padding="0,0,18,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
                             <StackPanel>
-                                <TextBlock Text="{Binding Label}" Style="{StaticResource FieldLabel}" FontSize="11" />
+                                <TextBlock Text="{Binding Label}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,0,0,2" />
                                 <TextBlock Text="{Binding Value}" FontSize="12.5">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">

@@ -38,8 +38,9 @@ no bars the app says so instead of drawing an empty chart.
 ## What the app does
 
 * **Buy/sell rule** - one of the strategies below.
-* **Indicators** - an ordered list. Anything added shows up on the chart; indicators that
-  do not share the price scale (RSI) get their own band underneath the price pane.
+* **Indicators** - two slots, no more. Each slot picks a type and a window. The rule reads
+  them in order, so slot 1 is the fast one in a crossover. Anything on the price scale is
+  drawn with the price; an oscillator (RSI) gets its own band underneath.
 * **Period** - from/to pickers plus 1Y / 3Y / 5Y / All shortcuts, clamped to the data.
 * **Cost of operation** - a percentage charged on **both** sides of every trade. Parsed
   with either `,` or `.` as the decimal separator, always shown with two decimals.
@@ -112,11 +113,11 @@ public IList<Signal> GenerateSignals(StrategyContext context)
 Shipped rules: `CrossoverStrategy` (long while indicator 1 reads above indicator 2),
 `DonchianBreakoutStrategy` (long on a new N bar high) and `BuyAndHoldStrategy`.
 
-A rule refers to indicators **by their position in the list**, so moving an indicator up
-changes what the rule trades on. That is deliberate: the list is a parameter, and the
-description line under the settings shows which one is which.
+A rule refers to indicators **by slot**, so swapping the two slots flips a crossover. That
+is deliberate: the slots are parameters, and the description line under the settings says
+which indicator is which.
 
 ## Settings
 
-The last folder, ticker, cost, period, rule and indicator list are remembered in
+The last folder, ticker, cost, period, rule and both indicator slots are remembered in
 `%LOCALAPPDATA%\TradingBacktest\TradingBacktest.settings` (plain `key=value`).

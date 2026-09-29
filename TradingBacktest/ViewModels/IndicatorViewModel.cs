@@ -7,39 +7,46 @@ using TradingBacktest.Strategies;
 namespace TradingBacktest.ViewModels
 {
     /// <summary>
-    /// One row of the indicator list: the type, its window, and whether it takes part in
-    /// the run. The row is only a shell - the calculation itself is done by the
-    /// <see cref="IIndicator"/> it builds on demand, so changing the list needs no change
-    /// in the engine.
+    /// One of the two indicator slots.
+    ///
+    /// The slot is only a shell - the calculation itself is done by the
+    /// <see cref="IIndicator"/> it builds on demand, so changing a slot needs no change
+    /// in the engine. There are exactly two of them: the crossover rule trades on one
+    /// indicator against the other, and a second pair would only be confusing.
     /// </summary>
     public sealed class IndicatorViewModel : ObservableObject
     {
-        private readonly IIndicator _prototype;
+        private IndicatorChoice _choice;
         private int _period;
 
-        public IndicatorViewModel(IIndicator prototype)
+        public IndicatorViewModel(IndicatorChoice choice)
         {
-            if (prototype == null)
+            _choice = choice ?? IndicatorCatalog.None;
+            _period = _choice.IsEmpty ? 20 : _choice.Prototype.DefaultPeriod;
+        }
+
+        /// <summary>What the slot currently holds; setting it resets the window to the default.</summary>
+        public IndicatorChoice Choice
+        {
+            get { return _choice; }
+            set
             {
-                throw new ArgumentNullException("prototype");
+                IndicatorChoice incoming = value ?? IndicatorCatalog.None;
+                if (!ReferenceEquals(incoming, _choice) && SetProperty(ref _choice, incoming))
+                {
+                    Period = incoming.IsEmpty ? _period : incoming.Prototype.DefaultPeriod;
+                }
             }
-
-            _prototype = prototype;
-
-            // Use the window the prototype was built with, not its default, so a restored
-            // or explicitly configured instance keeps its own number.
-            _period = prototype.Period;
         }
 
-        /// <summary>The configured instance, as shown in the drop-down ("SMA", "RSI", ...).</summary>
-        public IIndicator Prototype
+        public string ChoiceName
         {
-            get { return _prototype; }
+            get { return _choice.Name; }
         }
 
-        public string TypeName
+        public bool HasIndicator
         {
-            get { return _prototype.Name; }
+            get { return !_choice.IsEmpty; }
         }
 
         public int Period
@@ -71,43 +78,39 @@ namespace TradingBacktest.ViewModels
                 }
             }
         }
-        /// <summary>Text for the list row, e.g. "SMA 20".</summary>
-        public string Label
-        {
-            get { return _prototype.Name + " " + _period.ToString(CultureInfo.CurrentCulture); }
-        }
 
-        /// <summary>The indicator to hand to the engine, built from the current settings.</summary>
+        /// <summary>The indicator to hand to the engine, or null when the slot is empty.</summary>
         public IIndicator Build()
         {
-            return _prototype.WithPeriod(_period);
+            return _choice.IsEmpty ? null : _choice.Prototype.WithPeriod(_period);
         }
 
-        /// <summary>Encodes the row for the settings file, e.g. "SMA:20".</summary>
+        /// <summary>Encodes the slot for the settings file, e.g. "SMA:20" or "none".</summary>
         public string Serialize()
         {
-            return _prototype.Name + ":" + _period.ToString(CultureInfo.InvariantCulture);
+            if (_choice.IsEmpty)
+            {
+                return IndicatorChoice.NoneName;
+            }
+
+            return _choice.Prototype.Name + ":" + _period.ToString(CultureInfo.InvariantCulture);
         }
 
-        /// <summary>Rebuilds a row from the settings file. Returns null for an unknown entry.</summary>
+        /// <summary>Rebuilds a slot from the settings file. Unknown entries come back empty.</summary>
         public static IndicatorViewModel Deserialize(string text)
         {
             if (string.IsNullOrEmpty(text))
             {
-                return null;
+                return new IndicatorViewModel(IndicatorCatalog.None);
             }
 
             int separator = text.LastIndexOf(':');
             string name = separator > 0 ? text.Substring(0, separator) : text;
 
-            IIndicator prototype = IndicatorCatalog.Find(name);
-            if (prototype == null)
-            {
-                return null;
-            }
+            IndicatorChoice choice = IndicatorCatalog.FindChoice(name);
+            var row = new IndicatorViewModel(choice);
 
-            var row = new IndicatorViewModel(prototype);
-            if (separator > 0)
+            if (separator > 0 && !choice.IsEmpty)
             {
                 int period;
                 if (int.TryParse(text.Substring(separator + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out period))

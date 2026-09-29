@@ -71,7 +71,7 @@ namespace TradingBacktest.Strategies
             if (context.Series.Count <= highest)
             {
                 throw new InvalidOperationException(
-                    "The crossover rule works on the first " + (highest + 1) + " indicators of the list. Add another one.");
+                    "The crossover rule needs " + (highest + 1) + " indicators but the list has " + context.Series.Count + ". Fill both indicator slots.");
             }
 
             IndicatorLine fast = context.Series[_fast].Primary;
