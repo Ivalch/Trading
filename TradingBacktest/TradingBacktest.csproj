@@ -71,31 +71,11 @@
     <Compile Include="Controls\BacktestChart.cs">
       <SubType>Code</SubType>
     </Compile>
-    <!-- Indicators: pure calculations, bars in and plotted series out. -->
-    <Compile Include="Indicators\IIndicator.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Indicators\IndicatorCatalog.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Indicators\SmaIndicator.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Indicators\EmaIndicator.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Indicators\RsiIndicator.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Indicators\BollingerBandsIndicator.cs">
-      <SubType>Code</SubType>
-    </Compile>
+
     <Compile Include="Models\BacktestResult.cs">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="Models\Candle.cs">
-      <SubType>Code</SubType>
-    </Compile>
+
     <Compile Include="Models\StatItem.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -106,6 +86,13 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Mvvm\RelayCommand.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\ParameterTemplateSelector.cs">
+      <SubType>Code</SubType>
+    </Compile>
+
+    <Compile Include="Services\IndicatorPluginLoader.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Services\BacktestEngine.cs">
@@ -139,7 +126,10 @@
     <Compile Include="Strategies\BuyAndHoldStrategy.cs">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="ViewModels\IndicatorViewModel.cs">
+    <Compile Include="ViewModels\IndicatorSlotViewModel.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ViewModels\StrategyViewModel.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="ViewModels\MainViewModel.cs">
@@ -147,6 +137,66 @@
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <!--
+      The contracts: bars, indicators, indicator parameters. The host depends on these, the
+      Ind.* plug-ins depend on these, and neither depends on the other.
+    -->
+    <ProjectReference Include="..\TradingBacktest.Abstractions\TradingBacktest.Abstractions.csproj">
+      <Project>{2A7C41B8-9D3E-4F62-8B15-7C4E9A20D311}</Project>
+      <Name>TradingBacktest.Abstractions</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <!--
+    Plug-ins are copied, not referenced.
+
+    ReferenceOutputAssembly="false" keeps the host honest: the executable must not hold a
+    compile-time or run-time reference to any plug-in, or deleting one would break it and
+    the inversion would be only half done. But that same flag stops MSBuild copying the DLL
+    next to the exe, so the copy is done explicitly by CopyIndicatorPlugins below.
+
+    These entries exist only so the four shipped plug-ins are built and copied. The loader
+    finds them by the Ind*.dll name at runtime, not from this list, so dropping a plug-in in
+    by hand works exactly the same - and adding one here is optional.
+  -->
+  <ItemGroup>
+    <PluginProject Include="..\Ind.Sma\Ind.Sma.csproj" />
+    <PluginProject Include="..\Ind.Ema\Ind.Ema.csproj" />
+    <PluginProject Include="..\Ind.Rsi\Ind.Rsi.csproj" />
+    <PluginProject Include="..\Ind.BollingerBands\Ind.BollingerBands.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Ind.Sma\Ind.Sma.csproj">
+      <Project>{7B1E5C42-3A8D-4F19-9C06-52E4B7D1A101}</Project>
+      <Name>Ind.Sma</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Ind.Ema\Ind.Ema.csproj">
+      <Project>{3E8B6D15-7C24-4A90-B1F8-6D2C5A9E4B02}</Project>
+      <Name>Ind.Ema</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Ind.Rsi\Ind.Rsi.csproj">
+      <Project>{5F2A9D68-4E17-4B3C-8D71-9A6E0C2B5F03}</Project>
+      <Name>Ind.Rsi</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Ind.BollingerBands\Ind.BollingerBands.csproj">
+      <Project>{8C4E1F73-6A25-4D8B-BE19-3F7D2B6A9C04}</Project>
+      <Name>Ind.BollingerBands</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <Target Name="CopyIndicatorPlugins" AfterTargets="Build">
+    <MSBuild Projects="@(PluginProject)"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="PluginAssembly" />
+    </MSBuild>
+    <Copy SourceFiles="@(PluginAssembly)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>

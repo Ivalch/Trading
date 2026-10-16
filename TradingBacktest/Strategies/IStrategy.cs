@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
-using TradingBacktest.Indicators;
-using TradingBacktest.Models;
+using TradingBacktest.Abstractions;
 
 namespace TradingBacktest.Strategies
 {
     /// <summary>
-    /// What the strategy wants to hold from a given bar on. Long/flat only: the engine has
+    /// What a strategy wants to hold from a given bar on. Long/flat only: the engine has
     /// no margin model, so a strategy cannot ask to go short.
     /// </summary>
     public enum StrategyAction
@@ -33,40 +32,45 @@ namespace TradingBacktest.Strategies
     }
 
     /// <summary>
-    /// Everything one indicator produced. An indicator may return several series (Bollinger
-    /// has three); the first one is the main line, the rest are companions.
+    /// Everything one indicator plug-in produced. A plug-in may return several series
+    /// (Bollinger has three); the first one is the main line.
     /// </summary>
     public sealed class IndicatorSeries
     {
-        public IndicatorSeries(IIndicator indicator, IList<IndicatorLine> lines)
+        public IndicatorSeries(IIndicator indicator, IndicatorResult result)
         {
             if (indicator == null)
             {
                 throw new ArgumentNullException("indicator");
             }
 
-            if (lines == null)
+            if (result == null)
             {
-                throw new ArgumentNullException("lines");
+                throw new ArgumentNullException("result");
             }
 
             Indicator = indicator;
-            Lines = lines;
+            Result = result;
         }
 
         public IIndicator Indicator { get; private set; }
 
-        public IList<IndicatorLine> Lines { get; private set; }
+        public IndicatorResult Result { get; private set; }
+
+        public IList<IndicatorLine> Lines
+        {
+            get { return Result.Lines; }
+        }
 
         /// <summary>The main series, e.g. the middle band of a Bollinger set.</summary>
         public IndicatorLine Primary
         {
-            get { return Lines.Count > 0 ? Lines[0] : null; }
+            get { return Result.Lines.Count > 0 ? Result.Lines[0] : null; }
         }
 
         public string Label
         {
-            get { return Indicator.Name + " " + Indicator.Period.ToString(System.Globalization.CultureInfo.CurrentCulture); }
+            get { return Indicator.Name; }
         }
     }
 
@@ -82,9 +86,9 @@ namespace TradingBacktest.Strategies
         public IList<Candle> Candles { get; private set; }
 
         /// <summary>
-        /// One entry per configured indicator, in the order the UI lists them. A rule picks
-        /// what it needs by position, so moving an indicator in the list changes what the
-        /// rule trades on - the list is a parameter, not decoration.
+        /// One entry per configured indicator, in slot order. A rule picks what it needs by
+        /// position, so filling the slots differently changes what the rule trades on - the
+        /// slots are a parameter, not decoration.
         /// </summary>
         public IList<IndicatorSeries> Series { get; private set; }
     }

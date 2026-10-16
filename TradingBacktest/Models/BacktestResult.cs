@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using TradingBacktest.Indicators;
+using TradingBacktest.Abstractions;
 using TradingBacktest.Strategies;
 
 namespace TradingBacktest.Models
@@ -41,9 +41,10 @@ namespace TradingBacktest.Models
             var flat = new List<IndicatorLine>();
             for (int i = 0; i < series.Count; i++)
             {
-                for (int j = 0; j < series[i].Lines.Count; j++)
+                IList<IndicatorLine> produced = series[i].Lines;
+                for (int j = 0; j < produced.Count; j++)
                 {
-                    flat.Add(series[i].Lines[j]);
+                    flat.Add(produced[j]);
                 }
             }
 

@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using TradingBacktest.Indicators;
+using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
 using TradingBacktest.Mvvm;
 using TradingBacktest.Services;
@@ -16,9 +17,13 @@ namespace TradingBacktest.ViewModels
     /// <summary>
     /// Settings and the run loop.
     ///
-    /// Parameters: ticker, data folder, period, cost of operation, the list of indicators
-    /// and the buy/sell rule. Pressing Start takes whatever the list and the drop-down
+    /// Parameters: ticker, data folder, period, cost of operation, the two indicator slots
+    /// and the buy/sell rule. Pressing Start takes whatever the slots and the drop-down
     /// currently say, hands them to the engine and publishes the result for the chart.
+    ///
+    /// The indicators are not known here. They arrive as <see cref="IIndicatorFactory"/>
+    /// instances loaded from Ind*.dll at startup, so nothing in this class names a concrete
+    /// indicator.
     /// </summary>
     public sealed class MainViewModel : ObservableObject
     {
@@ -32,6 +37,7 @@ namespace TradingBacktest.ViewModels
 
         private readonly BacktestEngine _engine = new BacktestEngine();
         private readonly SettingsStore _settings = new SettingsStore();
+        private readonly IndicatorPluginLoader _plugins = new IndicatorPluginLoader();
 
         private string _ticker;
         private string _costText;
@@ -42,8 +48,11 @@ namespace TradingBacktest.ViewModels
         private string _statusText;
         private string _errorText;
         private string _strategyHint;
+        private string _pluginHint;
         private BacktestResult _result;
         private StrategyViewModel _selectedStrategy;
+        private IndicatorSlotViewModel _slot1;
+        private IndicatorSlotViewModel _slot2;
         private ObservableCollection<StatItem> _stats = new ObservableCollection<StatItem>();
         private ObservableCollection<string> _availableTickers = new ObservableCollection<string>();
 
@@ -63,6 +72,10 @@ namespace TradingBacktest.ViewModels
             _fromDate = _settings.GetDate(KeyFrom);
             _toDate = _settings.GetDate(KeyTo);
 
+            // Start every Ind*.dll we can find, before anything asks for an indicator.
+            _plugins.Load();
+            _pluginHint = _plugins.Summary();
+
             Strategies = new ObservableCollection<StrategyViewModel>();
             for (int i = 0; i < StrategyCatalog.All.Count; i++)
             {
@@ -70,9 +83,11 @@ namespace TradingBacktest.ViewModels
             }
 
             _selectedStrategy = FindStrategy(_settings.Get(KeyStrategy)) ?? Strategies[0];
+            _selectedStrategy.PropertyChanged += OnStrategyChanged;
             _strategyHint = _selectedStrategy.Description;
 
-            IndicatorChoices = IndicatorCatalog.Choices;
+            _slot1 = new IndicatorSlotViewModel();
+            _slot2 = new IndicatorSlotViewModel();
             RestoreIndicators(_settings.Get(KeyIndicators));
 
             StartCommand = new RelayCommand(OnStart, () => !_isBusy);
@@ -175,16 +190,28 @@ namespace TradingBacktest.ViewModels
 
         // ------------------------------------------------- indicators and strategy
 
-        /// <summary>What a slot can hold: the empty entry plus one per indicator type.</summary>
-        public IList<IndicatorChoice> IndicatorChoices { get; private set; }
+        /// <summary>
+        /// Indicator types found in the Ind*.dll files at startup. Drop a DLL in the folder
+        /// and it shows up here; nothing else has to change.
+        /// </summary>
+        public IList<IIndicatorFactory> AvailableIndicators
+        {
+            get { return _plugins.Factories; }
+        }
 
         /// <summary>
-        /// The two indicator slots. Order matters - a rule refers to indicators by
-        /// position, so slot 1 is the fast one in a crossover.
+        /// The two indicator slots, in slot order. A rule refers to indicators by position,
+        /// so filling slot 2 instead of slot 1 changes what it trades on.
         /// </summary>
-        public IndicatorViewModel Indicator1 { get; private set; }
+        public IndicatorSlotViewModel Indicator1
+        {
+            get { return _slot1; }
+        }
 
-        public IndicatorViewModel Indicator2 { get; private set; }
+        public IndicatorSlotViewModel Indicator2
+        {
+            get { return _slot2; }
+        }
 
         public ObservableCollection<StrategyViewModel> Strategies { get; private set; }
 
@@ -193,17 +220,58 @@ namespace TradingBacktest.ViewModels
             get { return _selectedStrategy; }
             set
             {
-                if (SetProperty(ref _selectedStrategy, value) && value != null)
+                if (value == null || ReferenceEquals(value, _selectedStrategy))
                 {
+                    return;
+                }
+
+                // Detach from the rule being replaced, or its edits would keep rewriting
+                // this hint after the drop-down has moved on.
+                if (_selectedStrategy != null)
+                {
+                    _selectedStrategy.PropertyChanged -= OnStrategyChanged;
+                }
+
+                if (SetProperty(ref _selectedStrategy, value))
+                {
+                    value.PropertyChanged += OnStrategyChanged;
                     _strategyHint = value.Description;
                     OnPropertyChanged("StrategyHint");
                 }
             }
         }
 
+        /// <summary>
+        /// Keeps the hint truthful when a rule's own parameter changes. A rule that says
+        /// "the previous 20 bars" has to say 50 once the lookback is 50, and the rule only
+        /// rewrites its text when it is rebuilt - so rebuild it here.
+        /// </summary>
+        private void OnStrategyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != "Description")
+            {
+                return;
+            }
+
+            var strategy = sender as StrategyViewModel;
+            if (strategy == null)
+            {
+                return;
+            }
+
+            _strategyHint = strategy.Description;
+            OnPropertyChanged("StrategyHint");
+        }
+
         public string StrategyHint
         {
             get { return _strategyHint; }
+        }
+
+        /// <summary>"4 indicators: Bollinger, EMA, RSI, SMA", or the load failures.</summary>
+        public string PluginHint
+        {
+            get { return _pluginHint; }
         }
 
         // ------------------------------------------------------------------ outputs
@@ -270,7 +338,6 @@ namespace TradingBacktest.ViewModels
             ReloadTickers();
         }
 
-
         private void OnPeriodPreset(object parameter)
         {
             if (string.IsNullOrEmpty(_dataDirectory) || !EnsureDataLoaded())
@@ -334,6 +401,16 @@ namespace TradingBacktest.ViewModels
                 if (_fromDate.HasValue && _toDate.HasValue && _fromDate.Value > _toDate.Value)
                 {
                     ErrorText = "The start of the period is after its end.";
+                    return;
+                }
+
+                // With no plug-in there is nothing to plot and nothing for a rule to read,
+                // so say so plainly instead of letting the rule fail on an empty list.
+                if (_plugins.Factories.Count == 0)
+                {
+                    ErrorText = "No indicators loaded. Every Ind*.dll next to the executable is started at "
+                        + "startup - build the Ind.* projects, or copy their DLLs into "
+                        + NumberParser.Ellipsize(AppDomain.CurrentDomain.BaseDirectory, 70) + ".";
                     return;
                 }
 
@@ -486,18 +563,22 @@ namespace TradingBacktest.ViewModels
             return FinamDataLoader.FindFile(_dataDirectory, _ticker == null ? string.Empty : _ticker.Trim(), null);
         }
 
-
+        /// <summary>
+        /// Asks the two slots for a configured indicator each, skipping an empty slot. The
+        /// plug-ins have already been validated by the loader; anything they throw here is
+        /// caught by the run and shown as an error.
+        /// </summary>
         private IList<IIndicator> BuildIndicators()
         {
             var indicators = new List<IIndicator>(2);
-            AddIfFilled(indicators, Indicator1);
-            AddIfFilled(indicators, Indicator2);
+            AddIfFilled(indicators, _slot1);
+            AddIfFilled(indicators, _slot2);
             return indicators;
         }
 
-        private static void AddIfFilled(List<IIndicator> indicators, IndicatorViewModel slot)
+        private static void AddIfFilled(List<IIndicator> indicators, IndicatorSlotViewModel slot)
         {
-            if (slot == null)
+            if (slot == null || !slot.HasIndicator)
             {
                 return;
             }
@@ -511,52 +592,107 @@ namespace TradingBacktest.ViewModels
 
         /// <summary>
         /// Rebuilds the two slots from the settings file. Anything missing or unrecognised
-        /// falls back to the default pair, which is what the crossover rule expects.
+        /// falls back to a fast and a slow simple average, which is what the crossover rule
+        /// expects in the first two slots.
         /// </summary>
         private void RestoreIndicators(string serialized)
         {
-            Indicator1 = null;
-            Indicator2 = null;
+            IList<IIndicatorFactory> factories = _plugins.Factories;
 
             if (!string.IsNullOrEmpty(serialized))
             {
                 string[] parts = serialized.Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
                 for (int i = 0; i < parts.Length && i < 2; i++)
                 {
-                    IndicatorViewModel slot = IndicatorViewModel.Deserialize(parts[i].Trim());
+                    IndicatorSlotViewModel restored = IndicatorSlotViewModel.Deserialize(parts[i].Trim(), factories);
                     if (i == 0)
                     {
-                        Indicator1 = slot;
+                        _slot1 = restored;
                     }
                     else
                     {
-                        Indicator2 = slot;
+                        _slot2 = restored;
                     }
                 }
             }
 
             // A crossover needs two averages; anything less would open on a dead error.
-            if (Indicator1 == null || !Indicator1.HasIndicator)
+            if (!_slot1.HasIndicator)
             {
-                Indicator1 = new IndicatorViewModel(IndicatorCatalog.FindChoice(new SmaIndicator().Name));
-                Indicator1.Period = 20;
+                _slot1 = DefaultSlot("Sma", 20);
             }
 
-            if (Indicator2 == null || !Indicator2.HasIndicator)
+            if (!_slot2.HasIndicator)
             {
-                Indicator2 = new IndicatorViewModel(IndicatorCatalog.FindChoice(new SmaIndicator().Name));
-                Indicator2.Period = 60;
+                _slot2 = DefaultSlot("Sma", 60);
             }
         }
 
-        private StrategyViewModel FindStrategy(string name)
+        private IndicatorSlotViewModel DefaultSlot(string id, int period)
         {
+            IList<IIndicatorFactory> factories = _plugins.Factories;
+            for (int i = 0; i < factories.Count; i++)
+            {
+                if (!string.Equals(factories[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var slot = new IndicatorSlotViewModel(factories[i]);
+                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                IList<IndicatorParameterDefinition> definitions = factories[i].Parameters;
+                if (definitions != null)
+                {
+                    for (int j = 0; j < definitions.Count; j++)
+                    {
+                        if (definitions[j].Type == IndicatorParameterType.Integer)
+                        {
+                            values[definitions[j].Key] = period.ToString(CultureInfo.InvariantCulture);
+                        }
+                    }
+                }
+
+                slot.LoadValues(values);
+                return slot;
+            }
+
+            return new IndicatorSlotViewModel();
+        }
+
+        /// <summary>
+        /// Restores a rule by name, taking the lookback with it when the settings carry one
+        /// ("Donchian breakout@50"). An unknown name falls back to the first rule.
+        /// </summary>
+        private StrategyViewModel FindStrategy(string stored)
+        {
+            if (string.IsNullOrEmpty(stored))
+            {
+                return null;
+            }
+
+            string name = stored;
+            string lookback = null;
+
+            int at = stored.LastIndexOf('@');
+            if (at > 0)
+            {
+                name = stored.Substring(0, at);
+                lookback = stored.Substring(at + 1);
+            }
+
             for (int i = 0; i < Strategies.Count; i++)
             {
-                if (string.Equals(Strategies[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(Strategies[i].Name, name, StringComparison.OrdinalIgnoreCase))
                 {
-                    return Strategies[i];
+                    continue;
                 }
+
+                if (lookback != null)
+                {
+                    Strategies[i].LookbackText = lookback;
+                }
+
+                return Strategies[i];
             }
 
             return null;
@@ -588,14 +724,12 @@ namespace TradingBacktest.ViewModels
 
         private void SaveSettings(double cost, DateTime from, DateTime to)
         {
-            string indicators = Indicator1.Serialize() + "|" + Indicator2.Serialize();
-
             _settings.Set(KeyDirectory, _dataDirectory);
             _settings.Set(KeyTicker, _ticker == null ? null : _ticker.Trim());
             _settings.Set(KeyCost, cost);
             _settings.Set(KeyFrom, from);
             _settings.Set(KeyTo, to);
-            _settings.Set(KeyIndicators, indicators);
+            _settings.Set(KeyIndicators, _slot1.Serialize() + "|" + _slot2.Serialize());
             _settings.Set(KeyStrategy, _selectedStrategy == null ? null : _selectedStrategy.Serialize());
             _settings.Save();
         }
@@ -616,6 +750,7 @@ namespace TradingBacktest.ViewModels
             Add("Ticker", result.Ticker, false);
             Add("Data file", result.Source, false);
             Add("Rule", result.Strategy, false);
+            Add("Indicators", DescribeSlots(), false);
             Add("Bars", result.Candles.Count.ToString("N0", CultureInfo.CurrentCulture), false);
             Add("Period", result.From.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture) + " - " + result.To.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture), false);
             Add("Capital", NumberParser.FormatMoney(result.InitialCapital), false);
@@ -629,6 +764,13 @@ namespace TradingBacktest.ViewModels
             Add("Max drawdown", NumberParser.FormatPercent(result.MaxDrawdownPercent) + " %", false);
             Add("Cost per operation", NumberParser.FormatPercent(result.CostPerOperationPercent) + " %", false);
             Add("Paid in fees", NumberParser.FormatMoney(totalCost), false);
+        }
+
+        private string DescribeSlots()
+        {
+            string first = _slot1.Serialize();
+            string second = _slot2.Serialize();
+            return first == "none" ? second : (second == "none" ? first : first + ", " + second);
         }
 
         private void Add(string label, string value, bool highlighted)

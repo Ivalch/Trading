@@ -4,9 +4,10 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using TradingBacktest.Indicators;
+using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
 using TradingBacktest.Services;
+using TradingBacktest.Strategies;
 
 namespace TradingBacktest.Controls
 {
@@ -452,26 +453,35 @@ namespace TradingBacktest.Controls
             for (int i = 0; i < result.Lines.Count; i++)
             {
                 IndicatorLine line = result.Lines[i];
-                if (line.UsesPriceScale)
+                if (!line.UsesPriceScale)
+                {
+                    DrawLine(dc, line, OscillatorY, PenFor(line));
+                }
+            }
+
+            // Guide lines the plug-ins asked for (RSI's 30 and 70, for one). The chart does
+            // not know what an RSI is.
+            for (int i = 0; i < result.Series.Count; i++)
+            {
+                IndicatorSeries series = result.Series[i];
+                if (series.Lines.Count > 0 && series.Lines[0].UsesPriceScale)
                 {
                     continue;
                 }
 
-                DrawLine(dc, line, OscillatorY, PenFor(line));
-
-                // Reference levels for a 0..100 oscillator; harmless for anything else.
-                if (line.Label.StartsWith("RSI", StringComparison.OrdinalIgnoreCase))
+                IList<IndicatorLevel> levels = series.Result.Levels;
+                for (int j = 0; j < levels.Count; j++)
                 {
-                    double over = OscillatorY(70);
-                    double under = OscillatorY(30);
-                    if (over > _oscillatorPane.Y && over < _oscillatorPane.Bottom)
+                    double y = OscillatorY(levels[j].Value);
+                    if (y <= _oscillatorPane.Y || y >= _oscillatorPane.Bottom)
                     {
-                        dc.DrawLine(BenchmarkPen, new Point(_oscillatorPane.X, over), new Point(_oscillatorPane.Right, over));
+                        continue;
                     }
 
-                    if (under > _oscillatorPane.Y && under < _oscillatorPane.Bottom)
+                    dc.DrawLine(BenchmarkPen, new Point(_oscillatorPane.X, y), new Point(_oscillatorPane.Right, y));
+                    if (levels[j].Label.Length > 0)
                     {
-                        dc.DrawLine(BenchmarkPen, new Point(_oscillatorPane.X, under), new Point(_oscillatorPane.Right, under));
+                        DrawText(dc, levels[j].Label, 10, LabelBrush, _oscillatorPane.X + 4, y - 7, false, false);
                     }
                 }
             }

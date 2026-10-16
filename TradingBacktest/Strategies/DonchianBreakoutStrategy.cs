@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using TradingBacktest.Models;
+using TradingBacktest.Abstractions;
 
 namespace TradingBacktest.Strategies
 {

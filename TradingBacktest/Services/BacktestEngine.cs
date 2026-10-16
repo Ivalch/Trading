@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using TradingBacktest.Indicators;
+using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
 using TradingBacktest.Strategies;
 
@@ -53,7 +53,7 @@ namespace TradingBacktest.Services
                 {
                     if (indicators[i] != null)
                     {
-                        required = Math.Max(required, indicators[i].Period);
+                        required = Math.Max(required, indicators[i].MinBars);
                     }
                 }
             }
@@ -214,10 +214,10 @@ namespace TradingBacktest.Services
                     continue;
                 }
 
-                IList<IndicatorLine> lines = indicator.Calculate(candles);
-                if (lines != null && lines.Count > 0)
+                IndicatorResult result = indicator.Calculate(candles);
+                if (result != null && !result.IsEmpty)
                 {
-                    series.Add(new IndicatorSeries(indicator, lines));
+                    series.Add(new IndicatorSeries(indicator, result));
                 }
             }
 

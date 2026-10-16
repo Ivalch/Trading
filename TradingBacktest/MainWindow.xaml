@@ -15,6 +15,11 @@
         <viewModels:MainViewModel />
     </Window.DataContext>
 
+    <Window.Resources>
+        <!-- Chooses an editor per parameter from the type its plug-in declared. -->
+        <controls:ParameterTemplateSelector x:Key="ParameterTemplate" />
+    </Window.Resources>
+
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -127,33 +132,69 @@
                     </StackPanel>
                 </StackPanel>
 
+                <!--
+                  The two indicator slots. Nothing here names an indicator: each combo lists
+                  the IIndicatorFactory instances the plug-in loader started, and the editors
+                  next to it are generated from whatever that factory declared.
+                -->
                 <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,8,0">
                     <TextBlock Text="Indicators" Style="{StaticResource FieldLabel}" />
-                    <!-- Two equal star columns, so the slots stay parallel. -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,8,0">
-                            <ComboBox Width="128"
-                                      ItemsSource="{Binding IndicatorChoices}"
-                                      SelectedItem="{Binding Indicator1.Choice}"
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,14,0">
+                            <ComboBox Width="118"
+                                      ItemsSource="{Binding AvailableIndicators}"
+                                      SelectedItem="{Binding Indicator1.Factory}"
                                       DisplayMemberPath="Name"
-                                      ToolTip="{Binding Indicator1.ChoiceName}" />
-                            <TextBlock Text="period" Margin="6,0,4,0" Style="{StaticResource Hint}" />
-                            <TextBox Style="{StaticResource InputTextBox}" Width="42" Text="{Binding Indicator1.PeriodText, UpdateSourceTrigger=LostFocus}" />
+                                      ToolTip="{Binding Indicator1.Factory.Description}" />
+                            <ItemsControl ItemsSource="{Binding Indicator1.Parameters}"
+                                          VerticalAlignment="Center"
+                                          Margin="8,0,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Label}" Style="{StaticResource InlineLabel}" />
+                                            <ContentControl Content="{Binding}"
+                                                            ContentTemplateSelector="{StaticResource ParameterTemplate}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <ComboBox Width="128"
-                                      ItemsSource="{Binding IndicatorChoices}"
-                                      SelectedItem="{Binding Indicator2.Choice}"
+                            <ComboBox Width="118"
+                                      ItemsSource="{Binding AvailableIndicators}"
+                                      SelectedItem="{Binding Indicator2.Factory}"
                                       DisplayMemberPath="Name"
-                                      ToolTip="{Binding Indicator2.ChoiceName}" />
-                            <TextBlock Text="period" Margin="6,0,4,0" Style="{StaticResource Hint}" />
-                            <TextBox Style="{StaticResource InputTextBox}" Width="42" Text="{Binding Indicator2.PeriodText, UpdateSourceTrigger=LostFocus}" />
+                                      ToolTip="{Binding Indicator2.Factory.Description}" />
+                            <ItemsControl ItemsSource="{Binding Indicator2.Parameters}"
+                                          VerticalAlignment="Center"
+                                          Margin="8,0,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Label}" Style="{StaticResource InlineLabel}" />
+                                            <ContentControl Content="{Binding}"
+                                                            ContentTemplateSelector="{StaticResource ParameterTemplate}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Grid>
                 </StackPanel>
@@ -165,9 +206,9 @@
                         <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedTextBrush}" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                        <TextBlock Text="{Binding TickerHint}" Style="{StaticResource Hint}" />
-                        <TextBlock Text="  |  " Style="{StaticResource Hint}" />
                         <TextBlock Text="{Binding DirectoryHint}" Style="{StaticResource Hint}" />
+                        <TextBlock Text="  |  " Style="{StaticResource Hint}" />
+                        <TextBlock Text="{Binding PluginHint}" Style="{StaticResource Hint}" />
                         <TextBlock Text="  |  " Style="{StaticResource Hint}" />
                         <TextBlock Text="{Binding StrategyHint}" Style="{StaticResource Hint}" />
                     </StackPanel>

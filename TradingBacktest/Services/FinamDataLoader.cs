@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
 
 namespace TradingBacktest.Services

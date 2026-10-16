@@ -1,8 +1,10 @@
-namespace TradingBacktest.Models
+namespace TradingBacktest.Abstractions
 {
     /// <summary>
-    /// One daily price bar. Only the fields the backtester needs are kept - no volume,
-    /// splits or dividends, because the demo strategy trades on closes alone.
+    /// One price bar, the input every indicator is calculated from.
+    ///
+    /// It lives in the contracts assembly rather than in the host so a plug-in never has to
+    /// reference the application.
     /// </summary>
     public sealed class Candle
     {
