@@ -1,0 +1,40 @@
+## Visual Studio / MSBuild
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.DotSettings.user
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.dll
+*.exe
+*.pdb
+*.cache
+
+## NuGet
+packages/
+*.nupkg
+project.assets.json
+project.nuget.cache
+*.nuget.props
+*.nuget.targets
+
+## Test results
+[Tt]est[Rr]esult*/
+*.coverage
+*.coveragexml
+
+## OS
+Thumbs.db
+.DS_Store
