@@ -53,6 +53,11 @@ namespace TradingBacktest.Controls
         private static readonly Brush BuyBrush = Frozen(Color.FromRgb(0x2E, 0x7D, 0x32));
         private static readonly Brush SellBrush = Frozen(Color.FromRgb(0xC6, 0x28, 0x28));
         private static readonly Brush TooltipBrush = Frozen(Color.FromArgb(0xF7, 0xFF, 0xFF, 0xFF));
+
+        // Candles: black wicks, and the same green and red the trade markers use, so a
+        // rising bar and a buy marker read as the same idea.
+        private static readonly Brush WickBrush = Frozen(Color.FromRgb(0x00, 0x00, 0x00));
+        private static readonly Pen WickPen = FrozenPen(WickBrush, 1.0);
         private static readonly Brush TooltipBorderBrush = Frozen(Color.FromRgb(0xBF, 0xC7, 0xD0));
 
         private static readonly Pen PricePen = FrozenPen(PriceBrush, 1.4);
@@ -66,6 +71,13 @@ namespace TradingBacktest.Controls
 
         private const int MinVisibleBars = 20;
         private const double ZoomStep = 1.18;
+
+        /// <summary>
+        /// How much room a bar needs before it is drawn as a candle rather than as part of
+        /// the close line. Below this the bodies blur into one another and the line is the
+        /// honest picture.
+        /// </summary>
+        private const double MinCandleBarWidth = 3.0;
 
         private int _hoverIndex = -1;
         private double _pixelsPerDip = 1.0;
@@ -84,6 +96,7 @@ namespace TradingBacktest.Controls
         private Rect _oscillatorPane;
         private Rect _equityPane;
         private bool _hasOscillator;
+        private bool _candles;
         private double _priceMin;
         private double _priceMax;
         private double _oscillatorMin;
@@ -332,6 +345,9 @@ namespace TradingBacktest.Controls
                 TopPad,
                 Math.Max(10, ActualWidth - LeftPad - RightPad),
                 Math.Max(10, ActualHeight - TopPad - BottomPad));
+
+            // One candle per bar, but only once the bars are wide enough to tell apart.
+            _candles = _plot.Width / Math.Max(1, _span - 1) >= MinCandleBarWidth;
 
             _hasOscillator = false;
             for (int i = 0; i < result.Lines.Count; i++)
@@ -644,15 +660,14 @@ namespace TradingBacktest.Controls
 
         private void DrawPriceCurve(DrawingContext dc, BacktestResult result)
         {
-            int from = _firstIndex;
-            int to = _windowEnd;
-            var points = new List<Point>(to - from);
-            for (int i = from; i < to; i++)
+            if (_candles)
             {
-                points.Add(new Point(X(i), PriceY(result.Candles[i].Close)));
+                DrawCandles(dc, result);
             }
-
-            DrawPolyline(dc, points, PricePen);
+            else
+            {
+                DrawCloseLine(dc, result);
+            }
 
             for (int i = 0; i < result.Lines.Count; i++)
             {
@@ -663,6 +678,64 @@ namespace TradingBacktest.Controls
                 }
 
                 DrawLine(dc, line, PriceY, PenFor(line));
+            }
+        }
+
+        /// <summary>The close line, for when the bars are too thin to draw as candles.</summary>
+        private void DrawCloseLine(DrawingContext dc, BacktestResult result)
+        {
+            int from = _firstIndex;
+            int to = _windowEnd;
+            var points = new List<Point>(to - from);
+            for (int i = from; i < to; i++)
+            {
+                points.Add(new Point(X(i), PriceY(result.Candles[i].Close)));
+            }
+
+            DrawPolyline(dc, points, PricePen);
+        }
+
+        /// <summary>
+        /// One candle per visible bar: a black wick from the bar's high to its low, and a
+        /// body from open to close, green when the bar closed up and red when it closed
+        /// down. A bar that opened and closed at the same price gets a one-pixel body, which
+        /// is what a doji should look like.
+        /// </summary>
+        private void DrawCandles(DrawingContext dc, BacktestResult result)
+        {
+            double spacing = _plot.Width / Math.Max(1, _span - 1);
+
+            // Bodies narrower than the gap between bars, or neighbours run together and
+            // the chart reads as a block of colour rather than as bars.
+            double wanted = spacing * 0.62;
+            int body = (int)Math.Round(wanted);
+            if (body < 1)
+            {
+                body = 1;
+            }
+
+            for (int i = _firstIndex; i < _windowEnd; i++)
+            {
+                Candle candle = result.Candles[i];
+                double x = X(i);
+
+                // Snapped to a whole pixel, or a one-pixel line smears across two of them.
+                double wick = Math.Round(x) + 0.5;
+                dc.DrawLine(WickPen, new Point(wick, PriceY(candle.High)), new Point(wick, PriceY(candle.Low)));
+
+                double openY = PriceY(candle.Open);
+                double closeY = PriceY(candle.Close);
+                int left = (int)Math.Round(x) - body / 2;
+                int height = (int)Math.Round(Math.Abs(closeY - openY));
+                if (height < 1)
+                {
+                    height = 1;
+                }
+
+                dc.DrawRectangle(
+                    candle.Close >= candle.Open ? BuyBrush : SellBrush,
+                    null,
+                    new Rect(left, Math.Min(openY, closeY), body, height));
             }
         }
 
@@ -784,7 +857,14 @@ namespace TradingBacktest.Controls
         {
             double x = _pricePane.X + 8;
             double y = _pricePane.Y + 6;
-            x += DrawLegendEntry(dc, x, y, PricePen, "close");
+            if (_candles)
+            {
+                x += DrawCandleLegendEntry(dc, x, y);
+            }
+            else
+            {
+                x += DrawLegendEntry(dc, x, y, PricePen, "close");
+            }
 
             for (int i = 0; i < result.Lines.Count; i++)
             {
@@ -850,6 +930,21 @@ namespace TradingBacktest.Controls
             }
 
             return x - start;
+        }
+
+        /// <summary>
+        /// The legend swatch for candles: one green body and one red, so the key matches
+        /// what is on the chart instead of showing a line that is no longer drawn.
+        /// </summary>
+        private double DrawCandleLegendEntry(DrawingContext dc, double x, double y)
+        {
+            double start = x;
+            dc.DrawRectangle(BuyBrush, null, new Rect(x, y + 1, 4, 10));
+            dc.DrawRectangle(SellBrush, null, new Rect(x + 6, y + 1, 4, 10));
+
+            FormattedText text = Text("candles", 10.5, LabelBrush);
+            dc.DrawText(text, new Point(x + 19, y));
+            return x + 19 + text.Width + 14 - start;
         }
 
         private void DrawCrosshair(DrawingContext dc, BacktestResult result)

@@ -58,6 +58,11 @@ no bars the app says so instead of drawing an empty chart.
   period, so a result is never read at a stale zoom level. The window stops at 20 bars, and
   the cursor turns into a hand once there is anything to drag.
 
+  Once a bar is at least 3 pixels wide the close line becomes **candles** - a black wick from
+  the bar's high to its low, and a body from open to close, green when the bar closed up and
+  red when it closed down. Below that width the bodies would blur together, so the line comes
+  back. Only the price pane does this; the equity curve has no open or high to draw.
+
 Sizing is all-in, rounded down to whole lots, and a decision made at the close of a bar is
 filled at the **open of the next** one, so the engine can never trade on a price it could not
 have seen.
