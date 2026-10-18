@@ -49,6 +49,14 @@ no bars the app says so instead of drawing an empty chart.
 * **Chart** - price with the indicators and the buy/sell markers, the oscillator band, and
   the equity curve against buy & hold and the starting capital. Hover for a crosshair and
   a readout of every series at that bar.
+  * **Wheel** zooms in time around the pointer, so the bar under the cursor stays put.
+  * **Left drag** pans.
+  * **Double click** fits the whole period again.
+
+  Only the horizontal axis zooms; the price, oscillator and equity scales refit to whatever
+  is on screen, which is what makes a zoom worth doing. A new run always shows the whole
+  period, so a result is never read at a stale zoom level. The window stops at 20 bars, and
+  the cursor turns into a hand once there is anything to drag.
 
 Sizing is all-in, rounded down to whole lots, and a decision made at the close of a bar is
 filled at the **open of the next** one, so the engine can never trade on a price it could not

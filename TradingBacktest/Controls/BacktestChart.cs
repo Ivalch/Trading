@@ -21,6 +21,11 @@ namespace TradingBacktest.Controls
     /// Implemented as a plain FrameworkElement that renders itself in OnRender, so the
     /// project needs no charting package - which matters, because the whole solution has
     /// to build with Visual Studio 2015 and C# 6.
+    ///
+    /// The wheel zooms in time around the pointer, the left button pans, and a double click
+    /// fits the whole range again. Only the horizontal axis zooms; the price and equity
+    /// scales refit to whatever is on screen, which is what makes a zoom worth doing.
+    /// A new result resets the view, so a run is never read at a stale zoom level.
     /// </summary>
     public sealed class BacktestChart : FrameworkElement
     {
@@ -28,7 +33,7 @@ namespace TradingBacktest.Controls
             "Result",
             typeof(BacktestResult),
             typeof(BacktestChart),
-            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.AffectsMeasure));
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.AffectsMeasure, OnResultChanged));
 
         private const double LeftPad = 66;    // price scale labels
         private const double RightPad = 78;   // own-scale labels
@@ -59,8 +64,21 @@ namespace TradingBacktest.Controls
         private static readonly Dictionary<Color, Pen> LinePens = new Dictionary<Color, Pen>();
         private static Brush _equityFillBrush;
 
+        private const int MinVisibleBars = 20;
+        private const double ZoomStep = 1.18;
+
         private int _hoverIndex = -1;
         private double _pixelsPerDip = 1.0;
+
+        // The visible slice of bars. The wheel changes _span, dragging changes _firstIndex,
+        // and _span of zero means "the whole range". Both are folded back into what the
+        // data can show every time the window is recomputed, so a resize, a shorter period
+        // or a new result can never leave the chart looking at bars that are not there.
+        private int _span;
+        private int _firstIndex;
+        private bool _dragging;
+        private double _dragStartX;
+        private int _dragStartFirst;
         private Rect _plot;
         private Rect _pricePane;
         private Rect _oscillatorPane;
@@ -85,6 +103,16 @@ namespace TradingBacktest.Controls
             set { SetValue(ResultProperty, value); }
         }
 
+        /// <summary>A new run always shows the whole period, whatever the last one was at.</summary>
+        private static void OnResultChanged(DependencyObject source, DependencyPropertyChangedEventArgs e)
+        {
+            var chart = source as BacktestChart;
+            if (chart != null)
+            {
+                chart.ResetZoom();
+            }
+        }
+
         protected override void OnRender(DrawingContext dc)
         {
             base.OnRender(dc);
@@ -107,7 +135,18 @@ namespace TradingBacktest.Controls
             }
 
             Layout(result);
-            _hoverIndex = Math.Min(_hoverIndex, result.Candles.Count - 1);
+
+            // A hover left over from before a zoom or a pan may no longer be on screen.
+            if (_hoverIndex < _firstIndex || _hoverIndex >= _windowEnd)
+            {
+                _hoverIndex = -1;
+            }
+
+            Cursor wanted = _span < result.Candles.Count ? Cursors.Hand : Cursors.Arrow;
+            if (!ReferenceEquals(Cursor, wanted))
+            {
+                Cursor = wanted;
+            }
 
             DrawPaneBackground(dc, _pricePane);
             DrawPaneBackground(dc, _equityPane);
@@ -126,6 +165,7 @@ namespace TradingBacktest.Controls
             }
 
             DrawLegend(dc, result);
+            DrawZoomHint(dc);
             DrawCrosshair(dc, result);
         }
 
@@ -133,7 +173,16 @@ namespace TradingBacktest.Controls
         {
             base.OnMouseMove(e);
 
-            int index = HitTest(e.GetPosition(this));
+            Point position = e.GetPosition(this);
+
+            if (_dragging && Mouse.LeftButton == MouseButtonState.Pressed)
+            {
+                Pan(position);
+                e.Handled = true;
+                return;
+            }
+
+            int index = HitTest(position);
             if (index != _hoverIndex)
             {
                 _hoverIndex = index;
@@ -141,20 +190,143 @@ namespace TradingBacktest.Controls
             }
         }
 
-        protected override void OnMouseLeave(MouseEventArgs e)
+        /// <summary>
+        /// Zooms in time around the pointer, so the bar under the cursor stays where it is.
+        /// One notch is <see cref="ZoomStep"/>, about 18% closer or further out.
+        /// </summary>
+        protected override void OnMouseWheel(MouseWheelEventArgs e)
         {
-            base.OnMouseLeave(e);
-            if (_hoverIndex != -1)
+            base.OnMouseWheel(e);
+            Zoom(e.GetPosition(this), e.Delta / 120);
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Zooms in time around <paramref name="position"/>, so the bar under the pointer
+        /// stays where it is instead of sliding away. <paramref name="notches"/> is positive
+        /// for the wheel moving up. Kept apart from the input handler so the arithmetic can
+        /// be checked without a mouse.
+        /// </summary>
+        private void Zoom(Point position, double notches)
+        {
+            BacktestResult result = Result;
+            if (result == null || result.Candles.Count < MinVisibleBars || notches == 0)
             {
-                _hoverIndex = -1;
-                InvalidateVisual();
+                return;
             }
+
+            if (_span < 1)
+            {
+                ComputeWindow(result);
+            }
+
+            double across = _plot.Width > 0 ? Clamp((position.X - _plot.X) / _plot.Width) : 0.5;
+            double anchor = _firstIndex + across * (_span - 1);
+
+            double scaled = Math.Round(_span / Math.Pow(ZoomStep, notches));
+            int span = (int)Math.Max(
+                Math.Min(MinVisibleBars, result.Candles.Count),
+                Math.Min(result.Candles.Count, scaled));
+
+            if (span == _span)
+            {
+                return;  // already as far as it goes; do not shake the window about
+            }
+
+            _span = span;
+            _firstIndex = (int)Math.Round(anchor - across * (_span - 1));
+            ComputeWindow(result);
+            _hoverIndex = HitTest(position);
+            InvalidateVisual();
+        }
+
+        protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+        {
+            base.OnMouseLeftButtonDown(e);
+
+            if (e.ClickCount == 2)
+            {
+                _dragging = false;
+                if (IsMouseCaptured)
+                {
+                    ReleaseMouseCapture();
+                }
+
+                ResetZoom();
+                e.Handled = true;
+                return;
+            }
+
+            BacktestResult result = Result;
+            if (result == null || result.Candles.Count < MinVisibleBars)
+            {
+                return;
+            }
+
+            if (_span < 1)
+            {
+                ComputeWindow(result);
+            }
+
+            if (_span >= result.Candles.Count)
+            {
+                return;  // the whole period is already on screen, so there is nothing to drag
+            }
+
+            _dragging = true;
+            _dragStartX = e.GetPosition(this).X;
+            _dragStartFirst = _firstIndex;
+            CaptureMouse();
+            e.Handled = true;
+        }
+
+        protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+        {
+            base.OnMouseLeftButtonUp(e);
+
+            if (_dragging)
+            {
+                _dragging = false;
+                if (IsMouseCaptured)
+                {
+                    ReleaseMouseCapture();
+                }
+
+                e.Handled = true;
+            }
+        }
+
+        /// <summary>Slides the window by however far the pointer has travelled.</summary>
+        private void Pan(Point position)
+        {
+            BacktestResult result = Result;
+            if (result == null || _plot.Width < 1)
+            {
+                return;
+            }
+
+            double travelled = -(position.X - _dragStartX) / _plot.Width * (_span - 1);
+            _firstIndex = _dragStartFirst + (int)Math.Round(travelled);
+            ComputeWindow(result);
+            _hoverIndex = HitTest(position);
+            InvalidateVisual();
+        }
+
+        /// <summary>Puts the whole period back on screen.</summary>
+        private void ResetZoom()
+        {
+            _span = 0;
+            _firstIndex = 0;
+            _hoverIndex = -1;
+            InvalidateVisual();
         }
 
         // ------------------------------------------------------------------ layout
 
         private void Layout(BacktestResult result)
         {
+            ComputeWindow(result);
+
             _plot = new Rect(
                 LeftPad,
                 TopPad,
@@ -194,12 +366,38 @@ namespace TradingBacktest.Controls
             ComputeEquityRange(result);
         }
 
+        /// <summary>Exclusive index one past the last visible bar.</summary>
+        private int _windowEnd
+        {
+            get { return _firstIndex + _span; }
+        }
+
+        /// <summary>
+        /// Folds the requested span and offset into what the data can actually show. Called
+        /// from every layout, so the window stays valid after a resize, a shorter period or
+        /// a new result rather than pointing at bars that are not there.
+        /// </summary>
+        private void ComputeWindow(BacktestResult result)
+        {
+            if (result == null)
+            {
+                _span = 0;
+                _firstIndex = 0;
+                return;
+            }
+
+            int count = result.Candles.Count;
+            int requested = _span <= 0 ? count : _span;
+            _span = Math.Max(Math.Min(MinVisibleBars, count), Math.Min(count, requested));
+            _firstIndex = count > _span ? Math.Max(0, Math.Min(count - _span, _firstIndex)) : 0;
+        }
+
         private void ComputePriceRange(BacktestResult result)
         {
             double min = double.MaxValue;
             double max = double.MinValue;
 
-            for (int i = 0; i < result.Candles.Count; i++)
+            for (int i = _firstIndex; i < _windowEnd; i++)
             {
                 Candle candle = result.Candles[i];
                 if (candle.Low < min)
@@ -221,8 +419,8 @@ namespace TradingBacktest.Controls
                     continue;
                 }
 
-                min = Math.Min(min, MinFinite(line.Values, double.MaxValue));
-                max = Math.Max(max, MaxFinite(line.Values, double.MinValue));
+                min = Math.Min(min, MinFinite(line.Values, _firstIndex, _windowEnd, double.MaxValue));
+                max = Math.Max(max, MaxFinite(line.Values, _firstIndex, _windowEnd, double.MinValue));
             }
 
             _priceMin = min;
@@ -241,6 +439,19 @@ namespace TradingBacktest.Controls
 
         private void ComputeOscillatorRange(BacktestResult result)
         {
+            if (FindOscillatorRange(result, _firstIndex, _windowEnd))
+            {
+                return;
+            }
+
+            // Nothing of the oscillator is on screen - a zoom into the first bars of the
+            // history, where it has no values yet. Fall back to the full period's scale
+            // rather than snapping to a flat 0..100 that says nothing.
+            FindOscillatorRange(result, 0, result.Candles.Count);
+        }
+
+        private bool FindOscillatorRange(BacktestResult result, int from, int to)
+        {
             double min = double.MaxValue;
             double max = double.MinValue;
 
@@ -252,17 +463,18 @@ namespace TradingBacktest.Controls
                     continue;
                 }
 
-                min = Math.Min(min, MinFinite(line.Values, double.MaxValue));
-                max = Math.Max(max, MaxFinite(line.Values, double.MinValue));
+                min = Math.Min(min, MinFinite(line.Values, from, to, double.MaxValue));
+                max = Math.Max(max, MaxFinite(line.Values, from, to, double.MinValue));
             }
 
-            if (min > max)
+            bool found = min <= max;
+            if (!found)
             {
                 min = 0;
                 max = 100;
             }
 
-            // A floor keeps an oscillator readable when it barely moves over the period.
+            // A floor keeps an oscillator readable when it barely moves over the window.
             if (max - min < 1e-9)
             {
                 min -= 1;
@@ -272,14 +484,17 @@ namespace TradingBacktest.Controls
             double pad = (max - min) * 0.10;
             _oscillatorMin = min - pad;
             _oscillatorMax = max + pad;
+            return found;
         }
 
         private void ComputeEquityRange(BacktestResult result)
         {
-            double min = Math.Min(result.InitialCapital, MinFinite(result.Equity, double.MaxValue));
-            double max = Math.Max(result.InitialCapital, MaxFinite(result.Equity, double.MinValue));
-            min = Math.Min(min, MinFinite(result.BuyAndHoldEquity, double.MaxValue));
-            max = Math.Max(max, MaxFinite(result.BuyAndHoldEquity, double.MinValue));
+            // Capital stays in the range whatever the zoom, so the break-even line is
+            // always on screen to measure against.
+            double min = Math.Min(result.InitialCapital, MinFinite(result.Equity, _firstIndex, _windowEnd, double.MaxValue));
+            double max = Math.Max(result.InitialCapital, MaxFinite(result.Equity, _firstIndex, _windowEnd, double.MinValue));
+            min = Math.Min(min, MinFinite(result.BuyAndHoldEquity, _firstIndex, _windowEnd, double.MaxValue));
+            max = Math.Max(max, MaxFinite(result.BuyAndHoldEquity, _firstIndex, _windowEnd, double.MinValue));
 
             _equityMin = min;
             _equityMax = max;
@@ -297,15 +512,19 @@ namespace TradingBacktest.Controls
 
         // ------------------------------------------------------------------ scales
 
+        /// <summary>
+        /// Maps a bar index to a horizontal position. Only the visible window is spread
+        /// across the plot, so zooming really does magnify the bars rather than squeezing
+        /// them against the edge.
+        /// </summary>
         private double X(int index)
         {
-            int count = Result.Candles.Count;
-            if (count < 2)
+            if (_span < 2)
             {
                 return _plot.X;
             }
 
-            return _plot.X + _plot.Width * index / (count - 1);
+            return _plot.X + _plot.Width * (index - _firstIndex) / (_span - 1);
         }
 
         private double PriceY(double price)
@@ -339,9 +558,19 @@ namespace TradingBacktest.Controls
                 return -1;
             }
 
-            double ratio = (point.X - _plot.X) / _plot.Width;
-            int index = (int)Math.Round(ratio * (result.Candles.Count - 1));
-            return Math.Max(0, Math.Min(result.Candles.Count - 1, index));
+            if (_span < 1)
+            {
+                ComputeWindow(result);
+            }
+
+            if (_span < 1 || _plot.Width < 1)
+            {
+                return -1;
+            }
+
+            double ratio = Clamp((point.X - _plot.X) / _plot.Width);
+            int index = _firstIndex + (int)Math.Round(ratio * (_span - 1));
+            return Math.Max(_firstIndex, Math.Min(_windowEnd - 1, index));
         }
 
         // ------------------------------------------------------------------ drawing
@@ -395,16 +624,15 @@ namespace TradingBacktest.Controls
 
         private void DrawDateAxis(DrawingContext dc, BacktestResult result)
         {
-            int count = result.Candles.Count;
-            int marks = Math.Min(6, count);
+            int marks = Math.Min(6, _span);
             double step = marks > 1 ? _plot.Width / (marks - 1) : _plot.Width;
 
             for (int i = 0; i < marks; i++)
             {
-                int index = (int)Math.Round(i * (count - 1) / (double)Math.Max(1, marks - 1));
-                if (index >= count)
+                int index = _firstIndex + (int)Math.Round(i * (_span - 1) / (double)Math.Max(1, marks - 1));
+                if (index >= _windowEnd)
                 {
-                    index = count - 1;
+                    index = _windowEnd - 1;
                 }
 
                 string label = result.Candles[index].Date.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture);
@@ -416,9 +644,10 @@ namespace TradingBacktest.Controls
 
         private void DrawPriceCurve(DrawingContext dc, BacktestResult result)
         {
-            int count = result.Candles.Count;
-            var points = new List<Point>(count);
-            for (int i = 0; i < count; i++)
+            int from = _firstIndex;
+            int to = _windowEnd;
+            var points = new List<Point>(to - from);
+            for (int i = from; i < to; i++)
             {
                 points.Add(new Point(X(i), PriceY(result.Candles[i].Close)));
             }
@@ -488,8 +717,10 @@ namespace TradingBacktest.Controls
 
         private void DrawLine(DrawingContext dc, IndicatorLine line, Func<double, double> mapY, Pen pen)
         {
-            var points = new List<Point>(line.Values.Length);
-            for (int i = 0; i < line.Values.Length; i++)
+            int from = Math.Max(0, _firstIndex);
+            int to = Math.Min(line.Values.Length, _windowEnd);
+            var points = new List<Point>(to - from);
+            for (int i = from; i < to; i++)
             {
                 if (line.HasValueAt(i))
                 {
@@ -502,18 +733,19 @@ namespace TradingBacktest.Controls
 
         private void DrawEquityCurve(DrawingContext dc, BacktestResult result)
         {
-            int count = result.Candles.Count;
+            int from = _firstIndex;
+            int to = _windowEnd;
 
-            var benchmark = new List<Point>(count);
-            for (int i = 0; i < count; i++)
+            var benchmark = new List<Point>(to - from);
+            for (int i = from; i < to; i++)
             {
                 benchmark.Add(new Point(X(i), EquityY(result.BuyAndHoldEquity[i])));
             }
 
             DrawPolyline(dc, benchmark, BenchmarkPen);
 
-            var equity = new List<Point>(count);
-            for (int i = 0; i < count; i++)
+            var equity = new List<Point>(to - from);
+            for (int i = from; i < to; i++)
             {
                 equity.Add(new Point(X(i), EquityY(result.Equity[i])));
             }
@@ -533,7 +765,7 @@ namespace TradingBacktest.Controls
             for (int i = 0; i < result.Trades.Count; i++)
             {
                 Trade trade = result.Trades[i];
-                if (trade.BarIndex < 0 || trade.BarIndex >= result.Candles.Count)
+                if (trade.BarIndex < _firstIndex || trade.BarIndex >= _windowEnd)
                 {
                     continue;
                 }
@@ -666,6 +898,23 @@ namespace TradingBacktest.Controls
             }
 
             DrawTooltip(dc, lines, x);
+        }
+
+        /// <summary>
+        /// Says what the mouse does, but only once there is something to do - otherwise the
+        /// chart is not advertising an interaction the reader cannot use yet.
+        /// </summary>
+        private void DrawZoomHint(DrawingContext dc)
+        {
+            BacktestResult result = Result;
+            if (result == null || _span >= result.Candles.Count)
+            {
+                return;
+            }
+
+            string message = _dragging ? "drag to pan" : "wheel to zoom, drag to pan, double-click to fit";
+            FormattedText text = Text(message, 10, LabelBrush);
+            dc.DrawText(text, new Point(Math.Max(_plot.X, _plot.Right - text.Width - 8), _pricePane.Bottom - text.Height - 4));
         }
 
         private static string Pad(string text)
@@ -840,6 +1089,66 @@ namespace TradingBacktest.Controls
         private static double Clamp(double value)
         {
             return value < 0 ? 0 : (value > 1 ? 1 : value);
+        }
+
+        private static double MinFinite(double[] values, int from, int to, double fallback)
+        {
+            double min = fallback;
+            for (int i = Math.Max(0, from); i < Math.Min(values.Length, to); i++)
+            {
+                double value = values[i];
+                if (!double.IsNaN(value) && !double.IsInfinity(value) && value < min)
+                {
+                    min = value;
+                }
+            }
+
+            return min;
+        }
+
+        private static double MaxFinite(double[] values, int from, int to, double fallback)
+        {
+            double max = fallback;
+            for (int i = Math.Max(0, from); i < Math.Min(values.Length, to); i++)
+            {
+                double value = values[i];
+                if (!double.IsNaN(value) && !double.IsInfinity(value) && value > max)
+                {
+                    max = value;
+                }
+            }
+
+            return max;
+        }
+
+        private static double MinFinite(IList<double> values, int from, int to, double fallback)
+        {
+            double min = fallback;
+            for (int i = Math.Max(0, from); i < Math.Min(values.Count, to); i++)
+            {
+                double value = values[i];
+                if (!double.IsNaN(value) && !double.IsInfinity(value) && value < min)
+                {
+                    min = value;
+                }
+            }
+
+            return min;
+        }
+
+        private static double MaxFinite(IList<double> values, int from, int to, double fallback)
+        {
+            double max = fallback;
+            for (int i = Math.Max(0, from); i < Math.Min(values.Count, to); i++)
+            {
+                double value = values[i];
+                if (!double.IsNaN(value) && !double.IsInfinity(value) && value > max)
+                {
+                    max = value;
+                }
+            }
+
+            return max;
         }
 
         private static double MinFinite(double[] values, double fallback)
