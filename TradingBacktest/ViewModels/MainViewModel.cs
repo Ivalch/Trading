@@ -33,6 +33,8 @@ namespace TradingBacktest.ViewModels
         private const string KeyTo = "To";
         private const string KeyIndicators = "Indicators";
         private const string KeyStrategy = "Strategy";
+        private const string KeyAllowShort = "AllowShort";
+        private const string KeyShortFee = "ShortAnnualFeePercent";
 
         private readonly BacktestEngine _engine = new BacktestEngine();
         private readonly SettingsStore _settings = new SettingsStore();
@@ -47,6 +49,8 @@ namespace TradingBacktest.ViewModels
         private DateTime? _fromDate;
         private DateTime? _toDate;
         private bool _isBusy;
+        private bool _allowShort;
+        private string _shortFeeText;
         private string _statusText;
         private string _errorText;
         private string _strategyHint;
@@ -70,6 +74,8 @@ namespace TradingBacktest.ViewModels
         {
             _ticker = _settings.Get(KeyTicker) ?? "TQBR_CHMF";
             _costText = NumberParser.FormatPercent(_settings.GetDouble(KeyCost, 0.10));
+            _allowShort = _settings.GetBool(KeyAllowShort, false);
+            _shortFeeText = NumberParser.FormatPercent(_settings.GetDouble(KeyShortFee, 0.0));
             _dataDirectory = _settings.Get(KeyDirectory) ?? SuggestDirectory();
             _fromDate = _settings.GetDate(KeyFrom);
             _toDate = _settings.GetDate(KeyTo);
@@ -123,6 +129,37 @@ namespace TradingBacktest.ViewModels
         {
             get { return _costText; }
             set { SetProperty(ref _costText, value); }
+        }
+
+        /// <summary>
+        /// Whether a rule may go short. Off by default: a short here carries no leverage and
+        /// no margin call, so it flatters the result compared with a real one.
+        /// </summary>
+        public bool AllowShort
+        {
+            get { return _allowShort; }
+            set
+            {
+                if (SetProperty(ref _allowShort, value))
+                {
+                    OnPropertyChanged("ShortFeeEnabled");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Annual borrow fee on a short, in percent. Greyed out while shorts are off, because
+        /// it then has no effect at all.
+        /// </summary>
+        public string ShortAnnualFeeText
+        {
+            get { return _shortFeeText; }
+            set { SetProperty(ref _shortFeeText, value); }
+        }
+
+        public bool ShortFeeEnabled
+        {
+            get { return _allowShort; }
         }
 
         /// <summary>Folder holding the exported history files (*.dat).</summary>
@@ -391,6 +428,13 @@ namespace TradingBacktest.ViewModels
                     return;
                 }
 
+                double shortFee = 0;
+                if (_allowShort && !NumberParser.TryParsePercent(_shortFeeText, out shortFee))
+                {
+                    ErrorText = "The annual borrow fee must be a number between 0 and 100, for example 12,00.";
+                    return;
+                }
+
                 if (string.IsNullOrEmpty(_ticker) || _ticker.Trim().Length == 0)
                 {
                     ErrorText = "Enter a ticker name.";
@@ -440,24 +484,31 @@ namespace TradingBacktest.ViewModels
                 IList<IIndicator> indicators = BuildIndicators();
                 IStrategy strategy = _strategySlot == null ? null : _strategySlot.Build();
 
+                var runSettings = new BacktestSettings
+                {
+                    CostPerOperationPercent = cost,
+                    AllowShort = _allowShort,
+                    ShortAnnualFeePercent = shortFee
+                };
+
                 BacktestResult result = await Task.Run(delegate
                 {
-                    return _engine.Run(ticker, source, _cachedCandles, cost, from, to, indicators, strategy);
+                    return _engine.Run(ticker, source, _cachedCandles, runSettings, from, to, indicators, strategy);
                 });
 
                 Result = result;
                 RebuildStats(result);
                 StatusText = string.Format(
                     CultureInfo.CurrentCulture,
-                    "{0} - {1} bars, {2} - {3}, {4} trades, cost {5}% per operation",
+                    "{0} - {1} bars, {2} - {3}, {4} trades, {5}",
                     ticker,
                     result.Candles.Count,
                     result.From.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture),
                     result.To.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture),
                     result.ClosedTradeCount,
-                    NumberParser.FormatPercent(cost));
+                    runSettings.Describe());
 
-                SaveSettings(cost, from, to);
+                SaveSettings(runSettings, from, to);
             }
             catch (Exception ex)
             {
@@ -715,11 +766,13 @@ namespace TradingBacktest.ViewModels
             return start;
         }
 
-        private void SaveSettings(double cost, DateTime from, DateTime to)
+        private void SaveSettings(BacktestSettings settings, DateTime from, DateTime to)
         {
             _settings.Set(KeyDirectory, _dataDirectory);
             _settings.Set(KeyTicker, _ticker == null ? null : _ticker.Trim());
-            _settings.Set(KeyCost, cost);
+            _settings.Set(KeyCost, settings.CostPerOperationPercent);
+            _settings.Set(KeyAllowShort, settings.AllowShort);
+            _settings.Set(KeyShortFee, settings.ShortAnnualFeePercent);
             _settings.Set(KeyFrom, from);
             _settings.Set(KeyTo, to);
             _settings.Set(KeyIndicators, _slot1.Serialize() + "|" + _slot2.Serialize());
@@ -734,7 +787,7 @@ namespace TradingBacktest.ViewModels
             double totalCost = 0;
             for (int i = 0; i < result.Trades.Count; i++)
             {
-                totalCost += result.Trades[i].Cost;
+                totalCost += result.Trades[i].TotalFees;
             }
 
             double excess = result.ReturnPercent - result.BuyAndHoldReturnPercent;
@@ -755,8 +808,16 @@ namespace TradingBacktest.ViewModels
             Add("Round trips", result.ClosedTradeCount.ToString(CultureInfo.CurrentCulture), false);
             Add("Win rate", NumberParser.FormatPercent(result.WinRatePercent) + " %", false);
             Add("Max drawdown", NumberParser.FormatPercent(result.MaxDrawdownPercent) + " %", false);
-            Add("Cost per operation", NumberParser.FormatPercent(result.CostPerOperationPercent) + " %", false);
+            Add("Cost per operation", NumberParser.FormatPercent(result.Settings.CostPerOperationPercent) + " %", false);
+            Add("Shorts", result.Settings.AllowShort
+                ? result.ShortEntries.ToString(CultureInfo.CurrentCulture) + " entries, borrow "
+                    + NumberParser.FormatPercent(result.Settings.ShortAnnualFeePercent) + " % a year"
+                : "off", false);
             Add("Paid in fees", NumberParser.FormatMoney(totalCost), false);
+            if (result.Settings.AllowShort && result.BorrowFeesPaid > 0)
+            {
+                Add("of which borrow", NumberParser.FormatMoney(result.BorrowFeesPaid), false);
+            }
         }
 
         private string DescribeSlots()

@@ -4,13 +4,17 @@ using System.Collections.Generic;
 namespace TradingBacktest.Abstractions
 {
     /// <summary>
-    /// What a strategy wants to hold from a given bar on. Long/flat only: the engine has
-    /// no margin model, so a strategy cannot ask to go short.
+    /// What a strategy wants to hold from a given bar on.
+    ///
+    /// <see cref="Short"/> is a request, not a guarantee: the engine only takes it when the
+    /// user has switched shorts on, and otherwise holds flat instead. A rule therefore never
+    /// has to know whether shorting is allowed.
     /// </summary>
     public enum StrategyAction
     {
         Flat,
-        Long
+        Long,
+        Short
     }
 
     /// <summary>

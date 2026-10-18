@@ -17,7 +17,8 @@
         <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFFFF" />
 
         <!-- Toggles the strategy look-back box on rules that have one. -->
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
 
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />

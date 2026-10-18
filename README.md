@@ -44,13 +44,34 @@ no bars the app says so instead of drawing an empty chart.
 * **Period** - from/to pickers plus 1Y / 3Y / 5Y / All shortcuts, clamped to the data.
 * **Cost of operation** - a percentage charged on **both** sides of every trade. Parsed
   with either `,` or `.` as the decimal separator, always shown with two decimals.
+* **Allow short** - whether a rule may go short, and **borrow, %** - the annual fee for
+  doing so.
 * **Chart** - price with the indicators and the buy/sell markers, the oscillator band, and
   the equity curve against buy & hold and the starting capital. Hover for a crosshair and
   a readout of every series at that bar.
 
-The backtest is long/flat only, all-in sizing rounded down to whole lots, and a decision
-made at the close of a bar is filled at the **open of the next** one - so the engine can
-never trade on a price it could not have seen.
+Sizing is all-in, rounded down to whole lots, and a decision made at the close of a bar is
+filled at the **open of the next** one, so the engine can never trade on a price it could not
+have seen.
+
+### Shorts
+
+`Allow short` decides whether a rule's `Short` requests are taken. A rule always emits what
+it wants; with the switch off the engine holds flat instead, so the same rule can be run both
+ways without editing it. `Str.Crossover` exposes this as a `below` parameter (flat or short)
+so you can watch the difference. Stats show how many shorts were entered and how much was paid
+to borrow.
+
+What the model does and does not do, so the numbers are read honestly:
+
+* **no leverage, no margin call.** A short carries one unit of notional per unit of capital.
+  A real short would have been forced flat on the way up, so short results here are optimistic.
+* the borrow fee is charged **once, when the short is covered**, on the amount actually
+  borrowed: `entry notional x annual rate x days / 365`. Charging on the entry notional
+  rather than the cover notional keeps the fee independent of the exit price, so it is easy
+  to predict and easy to check by hand.
+* opening a short is a **sell** and covering it is a **buy**, which is why the chart's markers
+  read the same way as for a long.
 
 ## Layout
 
@@ -174,13 +195,16 @@ public sealed class DonchianBreakoutStrategyFactory : IStrategyFactory
 }
 ```
 
-`GenerateSignals(StrategyContext)` gets the bars and the indicator output and returns only the
-bars where the wanted position changes:
+`GenerateSignals(StrategyContext)` gets the bars and the indicator output:
 
 ```csharp
 // context.Candles - the bars
 // context.Series  - one entry per filled indicator slot, in slot order; [0].Primary is the main line
 ```
+
+Emit `Long`, `Short` or `Flat` **only where the position should change**. The engine holds
+whatever you last asked for until you ask again - a rule that emits nothing on a bar means
+"keep the position", not "go flat".
 
 Two rules about the wording, because the difference is a bug I already made once:
 

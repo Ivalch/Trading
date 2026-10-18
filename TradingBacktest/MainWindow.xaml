@@ -5,9 +5,9 @@
         xmlns:viewModels="clr-namespace:TradingBacktest.ViewModels"
         Title="Trading Backtest"
         Height="800"
-        Width="1330"
+        Width="1620"
         MinHeight="560"
-        MinWidth="1300"
+        MinWidth="1600"
         Background="#FFF4F6F8"
         TextOptions.TextFormattingMode="Display"
         UseLayoutRounding="True">
@@ -41,12 +41,12 @@
                 Padding="12,10">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="240" />
+                    <ColumnDefinition Width="340" />
                     <ColumnDefinition Width="310" />
                     <ColumnDefinition Width="290" />
                     <ColumnDefinition Width="172" />
-                    <ColumnDefinition Width="70" />
-                    <ColumnDefinition Width="108" />
+                    <ColumnDefinition Width="290" />
+                    <ColumnDefinition Width="118" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
@@ -100,8 +100,35 @@
                 <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,8,5">
                     <TextBlock Text="Cost, %" Style="{StaticResource FieldLabel}"
                                ToolTip="Commission, spread and tax charged on each buy and each sell, in percent" />
-                    <TextBox Style="{StaticResource InputTextBox}" Width="58"
-                             Text="{Binding CostText, UpdateSourceTrigger=PropertyChanged}" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox Style="{StaticResource InputTextBox}" Width="58"
+                                 Text="{Binding CostText, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <CheckBox Content="Allow short"
+                                  Margin="14,0,0,0"
+                                  VerticalAlignment="Center"
+                                  Foreground="{StaticResource TextBrush}"
+                                  IsChecked="{Binding AllowShort}"
+                                  ToolTip="Let a rule go short. The engine models no leverage and no margin call." />
+
+                        <TextBlock Text="borrow, %" Margin="10,0,5,0" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource InlineLabel}">
+                                    <!-- Dimmed while shorts are off: the fee has no effect then. -->
+                                    <Setter Property="Opacity" Value="0.45" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShortFeeEnabled}" Value="True">
+                                            <Setter Property="Opacity" Value="1" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBox Style="{StaticResource InputTextBox}" Width="52"
+                                 Text="{Binding ShortAnnualFeeText, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding ShortFeeEnabled}"
+                                 ToolTip="Annual borrow fee on a short, prorated over the days it is held" />
+                    </StackPanel>
                 </StackPanel>
 
                 <Button Grid.Row="0"
@@ -118,7 +145,7 @@
                 <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
                     <TextBlock Text="Buy/sell rule" Style="{StaticResource FieldLabel}" />
                     <StackPanel Orientation="Horizontal">
-                        <ComboBox Width="140"
+                        <ComboBox Width="128"
                                   ItemsSource="{Binding AvailableStrategies}"
                                   SelectedItem="{Binding SelectedStrategy.Factory}"
                                   DisplayMemberPath="Name"
@@ -158,7 +185,7 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,14,0">
-                            <ComboBox Width="118"
+                            <ComboBox Width="112"
                                       ItemsSource="{Binding AvailableIndicators}"
                                       SelectedItem="{Binding Indicator1.Factory}"
                                       DisplayMemberPath="Name"
@@ -184,7 +211,7 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <ComboBox Width="118"
+                            <ComboBox Width="112"
                                       ItemsSource="{Binding AvailableIndicators}"
                                       SelectedItem="{Binding Indicator2.Factory}"
                                       DisplayMemberPath="Name"

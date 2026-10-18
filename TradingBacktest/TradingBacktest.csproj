@@ -72,6 +72,9 @@
       <SubType>Code</SubType>
     </Compile>
 
+    <Compile Include="Models\BacktestSettings.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Models\BacktestResult.cs">
       <SubType>Code</SubType>
     </Compile>

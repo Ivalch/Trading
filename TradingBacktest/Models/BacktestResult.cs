@@ -14,7 +14,7 @@ namespace TradingBacktest.Models
             string ticker,
             string source,
             string strategy,
-            double costPerOperationPercent,
+            BacktestSettings settings,
             double initialCapital,
             DateTime from,
             DateTime to,
@@ -27,7 +27,7 @@ namespace TradingBacktest.Models
             Ticker = ticker;
             Source = source;
             Strategy = strategy;
-            CostPerOperationPercent = costPerOperationPercent;
+            Settings = settings;
             InitialCapital = initialCapital;
             From = from;
             To = to;
@@ -58,7 +58,41 @@ namespace TradingBacktest.Models
         /// <summary>Name of the rule that produced the trades.</summary>
         public string Strategy { get; private set; }
 
-        public double CostPerOperationPercent { get; private set; }
+        /// <summary>The costs and switches this run was made under.</summary>
+        public BacktestSettings Settings { get; private set; }
+
+        /// <summary>Number of times the engine opened a short.</summary>
+        public int ShortEntries
+        {
+            get
+            {
+                int count = 0;
+                for (int i = 0; i < Trades.Count; i++)
+                {
+                    if (Trades[i].Side == TradeSide.Sell)
+                    {
+                        count++;
+                    }
+                }
+
+                return count;
+            }
+        }
+
+        /// <summary>Total borrow fee paid for holding shorts.</summary>
+        public double BorrowFeesPaid
+        {
+            get
+            {
+                double total = 0;
+                for (int i = 0; i < Trades.Count; i++)
+                {
+                    total += Trades[i].BorrowFee;
+                }
+
+                return total;
+            }
+        }
 
         public double InitialCapital { get; private set; }
 

@@ -69,6 +69,20 @@ namespace TradingBacktest.Services
             return value;
         }
 
+        /// <summary>Reads a stored flag ("True"/"1"/"yes"); anything else is false.</summary>
+        public bool GetBool(string key, bool fallback)
+        {
+            string text = Get(key);
+            if (string.IsNullOrEmpty(text))
+            {
+                return fallback;
+            }
+
+            return text.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || text == "1"
+                || text.Equals("yes", StringComparison.OrdinalIgnoreCase);
+        }
+
         public DateTime? GetDate(string key)
         {
             string text = Get(key);
@@ -90,6 +104,11 @@ namespace TradingBacktest.Services
             }
 
             _values[key] = value;
+        }
+
+        public void Set(string key, bool value)
+        {
+            Set(key, value ? "True" : "False");
         }
 
         public void Set(string key, double value)

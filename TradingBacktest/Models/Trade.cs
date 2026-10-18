@@ -2,14 +2,21 @@ namespace TradingBacktest.Models
 {
     public enum TradeSide
     {
+        /// <summary>Buying to open a long, or buying to close a short.</summary>
         Buy,
+
+        /// <summary>Selling to close a long, or selling to open a short.</summary>
         Sell
     }
 
     /// <summary>
     /// A single order that the engine executed. <see cref="Profit"/> is only meaningful on
-    /// a <see cref="TradeSide.Sell"/> row, where it holds the net result of the round trip
-    /// (both sides of the operation cost already deducted). It is NaN on buy rows.
+    /// the row that closes a position, where it holds the net result of the round trip -
+    /// both sides of the operation cost and any borrow fee already deducted.
+    /// It is NaN on the row that opens one.
+    ///
+    /// <see cref="Side"/> is the side of the order, not of the position: opening a short is
+    /// a sell, covering it is a buy.
     /// </summary>
     public sealed class Trade
     {
@@ -36,13 +43,25 @@ namespace TradingBacktest.Models
 
         public double Quantity { get; private set; }
 
-        /// <summary>Money paid for this operation, derived from the cost-per-operation setting.</summary>
+        /// <summary>Operation cost charged on this fill, from the cost-per-operation setting.</summary>
         public double Cost { get; private set; }
 
-        /// <summary>Portfolio value (cash + open position marked to market) right after the fill.</summary>
+        /// <summary>
+        /// Borrow fee for closing a short: the annual rate prorated over the days the
+        /// position was open. Zero on every other row.
+        /// </summary>
+        public double BorrowFee { get; set; }
+
+        /// <summary>Portfolio value (cash plus the open position marked to market) after the fill.</summary>
         public double EquityAfter { get; private set; }
 
-        /// <summary>Net profit of the round trip; set on sell rows only, NaN otherwise.</summary>
+        /// <summary>Net profit of the round trip; set on the closing row only, NaN otherwise.</summary>
         public double Profit { get; set; }
+
+        /// <summary>Everything the engine paid on this fill, for the fee summary.</summary>
+        public double TotalFees
+        {
+            get { return Cost + BorrowFee; }
+        }
     }
 }
