@@ -55,25 +55,26 @@ never trade on a price it could not have seen.
 ## Layout
 
 ```
-TradingBacktest.Abstractions/   contracts only: Candle, IIndicator, IIndicatorFactory,
-                                IndicatorParameterDefinition - no implementation
-Ind.Sma/                        plug-in, its own DLL, named Ind.Sma.dll
-Ind.Ema/
-Ind.Rsi/
+TradingBacktest.Abstractions/   contracts only: Candle, IIndicator + IIndicatorFactory,
+                                IStrategy + IStrategyFactory, IndicatorParameterDefinition
+Ind.Sma/  Ind.Ema/  Ind.Rsi/    indicator plug-ins, one DLL each: Ind*.dll
 Ind.BollingerBands/
+Str.Crossover/                  rule plug-ins, one DLL each: Str*.dll
+Str.DonchianBreakout/
+Str.BuyAndHold/
 TradingBacktest/                the WPF host
   Models/                       BacktestResult, StatItem, Trade
-  Strategies/                   IStrategy + one class per buy/sell rule
-  Services/                     BacktestEngine, IndicatorPluginLoader, FinamDataLoader,
+  Services/                     BacktestEngine, PluginLoader, FinamDataLoader,
                                 FolderDialog, NumberParser, SettingsStore
   Controls/                     BacktestChart, drawn in OnRender; ParameterTemplateSelector
-  ViewModels/                   MainViewModel, IndicatorSlotViewModel, StrategyViewModel
+  ViewModels/                   MainViewModel, IndicatorSlotViewModel, StrategySlotViewModel
 ```
 
-The dependency points inwards, which is the whole point:
+Indicators and rules are plug-ins, by the same contract and with the same loader. The
+dependency points inwards, which is the whole point:
 
 ```
-    host  --->  TradingBacktest.Abstractions  <---  Ind.Sma.dll, Ind.Ema.dll, ...
+    host  --->  TradingBacktest.Abstractions  <---  Ind.Sma.dll, Ind.Ema.dll, Str.Crossover.dll, ...
 ```
 
 The host references the contracts. Each plug-in references the contracts. Neither references
@@ -87,28 +88,29 @@ _engine.Run(ticker, source, candles, cost, from, to, indicators, strategy);
 `BacktestEngine` knows how to charge for an operation and how to size a position. It has no
 idea what an SMA is and does not know when to buy, so it never has to change.
 
-## Indicators are plug-ins
+## Indicators and rules are plug-ins
 
-At startup `IndicatorPluginLoader` takes **every `Ind*.dll`** next to the executable - and in
-an `Indicators` sub-folder if there is one - calls `Assembly.LoadFrom`, and constructs every
-public parameterless type implementing `IIndicatorFactory`. That construction is the only
-moment the host touches a plug-in type. A DLL that will not load, or a factory whose
-constructor throws, is reported and skipped: one broken plug-in never stops the app starting.
-The status line reads `4 indicators: Bollinger, EMA, RSI, SMA`, or names the file that failed.
+At startup `PluginLoader<T>` takes **every `Ind*.dll`** (and an `Indicators` sub-folder, if
+there is one) for indicators, and **every `Str*.dll`** (and a `Strategies` sub-folder) for
+rules. For each it calls `Assembly.LoadFrom` and constructs every public parameterless type
+implementing the matching factory - `IIndicatorFactory` or `IStrategyFactory`. That
+construction is the only moment the host touches a plug-in type. A DLL that will not load, or a
+factory whose constructor throws, is reported and skipped: one broken plug-in never stops the
+app starting. The status line reads
+`4 indicators: Bollinger, EMA, RSI, SMA; 3 rules: Average crossover, Buy and hold, Donchian breakout`,
+or names the file that failed.
 
-Adding an indicator means dropping a DLL in the folder: no project file, no registration, no
+Adding either kind means dropping a DLL in the folder: no project file, no registration, no
 edit to the host.
 
-The four entries in `TradingBacktest.csproj` exist only so the build produces the shipped
-plug-ins and copies them next to the executable, and that copy is done by the
-`CopyIndicatorPlugins` target rather than by MSBuild. The reason is a subtlety worth knowing:
-the project references use `ReferenceOutputAssembly="false"`, which is what keeps the
-inversion honest - the exe must not hold a compile-time or run-time reference to any plug-in,
-or deleting one would break it - but that same flag is also what stops MSBuild copying the DLL
-into the output. Drop the flag and you get the opposite mistake: the host hard-references every
-plug-in and stops being pluggable. If the plug-ins are missing you will see
-`No indicators loaded. Every Ind*.dll next to the executable is started at startup`.
-
+The project entries exist only so the build produces the shipped plug-ins and copies them next
+to the executable, and that copy is done by the `CopyIndicatorPlugins` target rather than by
+MSBuild. The reason is a subtlety worth knowing: the project references use
+`ReferenceOutputAssembly="false"`, which is what keeps the inversion honest - the exe must not
+hold a compile-time or run-time reference to any plug-in, or deleting one would break it - but
+that same flag is also what stops MSBuild copying the DLL into the output. Drop the flag and you
+get the opposite mistake: the host hard-references every plug-in and stops being pluggable. If
+the plug-ins are missing you will see `No indicators loaded...` or `No buy/sell rules loaded...`.
 Remove those entries and copy the DLLs by hand instead and it behaves identically.
 
 ### Writing one
@@ -146,29 +148,58 @@ Pass `usesPriceScale: false` for an oscillator so it gets its own band instead o
 squashed against prices in the thousands. Attach `IndicatorLevel`s (RSI's 30 and 70) to have
 the chart draw guide lines without it recognising the indicator by name.
 
-Settings serialise as `Sma(Period=20)|Ema(Period=20,Source=Close)`.
 
-### Adding a buy/sell rule
+### Writing a rule
 
-Rules are compiled in, not plug-ins: they are the trading logic rather than the maths, and
-they change far more often. Implement `IStrategy` and add an instance to
-`StrategyCatalog.All`:
+Same two types, same parameter machinery:
 
 ```csharp
-public IList<Signal> GenerateSignals(StrategyContext context)
+public sealed class DonchianBreakoutStrategyFactory : IStrategyFactory
 {
-    // context.Candles - the bars
-    // context.Series  - one entry per indicator slot, in slot order; [0].Primary is the main line
-    // Return only the bars where the wanted position changes.
+    public string Id { get { return "DonchianBreakout"; } }
+    public string Name { get { return "Donchian breakout"; } }
+
+    // Static: this instance is built once at startup and cannot know the user's value.
+    public string Description { get { return "Long on a new high for the lookback period."; } }
+
+    public IList<IndicatorParameterDefinition> Parameters { get { return new List<...>
+    {
+        IndicatorParameterDefinition.Integer("Lookback", "bars", 20, 2, 2000, "Previous bars."),
+    } } }
+
+    public IStrategy Create(IndicatorParameters parameters)
+    {
+        return new DonchianBreakoutStrategy(parameters.GetInt("Lookback"));
+    }
 }
 ```
 
-Shipped rules: `CrossoverStrategy` (long while indicator 1 reads above indicator 2),
-`DonchianBreakoutStrategy` (long on a new N bar high) and `BuyAndHoldStrategy`.
+`GenerateSignals(StrategyContext)` gets the bars and the indicator output and returns only the
+bars where the wanted position changes:
+
+```csharp
+// context.Candles - the bars
+// context.Series  - one entry per filled indicator slot, in slot order; [0].Primary is the main line
+```
+
+Two rules about the wording, because the difference is a bug I already made once:
+
+* the **factory's** description is built once at startup, so it must not quote a parameter
+  value;
+* the **configured rule's** description must, and is read from the instance the plug-in just
+  built. The host shows that one, and rebuilds it whenever a parameter changes, so "the previous
+  50 bars" is always the number actually in force.
+
+Shipped rules: `Str.Crossover` (long while indicator 1 reads above indicator 2, optionally
+waiting `confirm` bars), `Str.DonchianBreakout` (long on a new N bar high) and
+`Str.BuyAndHold` (one entry, no parameters at all).
 
 A rule refers to indicators **by slot**, so swapping the two slots flips a crossover. That is
 deliberate: the slots are parameters, and the description line under the settings says which
 indicator is which.
+
+Settings serialise as `Sma(Period=20)|Ema(Period=20,Source=Close)` for the slots and
+`DonchianBreakout(Lookback=50)` for the rule, so a run comes back exactly as it was left.
 ## Settings
 
 The last folder, ticker, cost, period, rule and both indicator slots (with every parameter)

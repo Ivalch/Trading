@@ -119,16 +119,28 @@
                     <TextBlock Text="Buy/sell rule" Style="{StaticResource FieldLabel}" />
                     <StackPanel Orientation="Horizontal">
                         <ComboBox Width="140"
-                                  ItemsSource="{Binding Strategies}"
-                                  SelectedItem="{Binding SelectedStrategy}"
-                                  DisplayMemberPath="Name" />
-                        <TextBlock Text="bars"
-                                   Style="{StaticResource InlineLabel}"
-                                   Visibility="{Binding SelectedStrategy.HasLookback, Converter={StaticResource BoolToVis}}" />
-                        <TextBox Style="{StaticResource InputTextBox}" Width="44"
-                                 Text="{Binding SelectedStrategy.LookbackText, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="How many bars back the rule looks"
-                                 Visibility="{Binding SelectedStrategy.HasLookback, Converter={StaticResource BoolToVis}}" />
+                                  ItemsSource="{Binding AvailableStrategies}"
+                                  SelectedItem="{Binding SelectedStrategy.Factory}"
+                                  DisplayMemberPath="Name"
+                                  ToolTip="{Binding SelectedStrategy.Factory.Description}" />
+                        <ItemsControl ItemsSource="{Binding SelectedStrategy.Parameters}"
+                                      VerticalAlignment="Center"
+                                      Margin="8,0,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Label}" Style="{StaticResource InlineLabel}" />
+                                        <ContentControl Content="{Binding}"
+                                                        ContentTemplateSelector="{StaticResource ParameterTemplate}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </StackPanel>
 

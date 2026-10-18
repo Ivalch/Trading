@@ -51,6 +51,8 @@
     <Compile Include="IndicatorParameters.cs" />
     <Compile Include="IIndicator.cs" />
     <Compile Include="IIndicatorFactory.cs" />
+    <Compile Include="IStrategy.cs" />
+    <Compile Include="IStrategyFactory.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

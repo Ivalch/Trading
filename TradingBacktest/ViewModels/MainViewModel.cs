@@ -10,7 +10,6 @@ using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
 using TradingBacktest.Mvvm;
 using TradingBacktest.Services;
-using TradingBacktest.Strategies;
 
 namespace TradingBacktest.ViewModels
 {
@@ -37,7 +36,10 @@ namespace TradingBacktest.ViewModels
 
         private readonly BacktestEngine _engine = new BacktestEngine();
         private readonly SettingsStore _settings = new SettingsStore();
-        private readonly IndicatorPluginLoader _plugins = new IndicatorPluginLoader();
+        private readonly PluginLoader<IIndicatorFactory> _indicators =
+            new PluginLoader<IIndicatorFactory>(PluginLoader<IIndicatorFactory>.IndicatorPattern, PluginLoader<IIndicatorFactory>.IndicatorFolder, "indicator");
+        private readonly PluginLoader<IStrategyFactory> _rules =
+            new PluginLoader<IStrategyFactory>(PluginLoader<IStrategyFactory>.StrategyPattern, PluginLoader<IStrategyFactory>.StrategyFolder, "rule");
 
         private string _ticker;
         private string _costText;
@@ -50,7 +52,7 @@ namespace TradingBacktest.ViewModels
         private string _strategyHint;
         private string _pluginHint;
         private BacktestResult _result;
-        private StrategyViewModel _selectedStrategy;
+        private StrategySlotViewModel _strategySlot;
         private IndicatorSlotViewModel _slot1;
         private IndicatorSlotViewModel _slot2;
         private ObservableCollection<StatItem> _stats = new ObservableCollection<StatItem>();
@@ -72,19 +74,13 @@ namespace TradingBacktest.ViewModels
             _fromDate = _settings.GetDate(KeyFrom);
             _toDate = _settings.GetDate(KeyTo);
 
-            // Start every Ind*.dll we can find, before anything asks for an indicator.
-            _plugins.Load();
-            _pluginHint = _plugins.Summary();
+            // Start every Ind*.dll and Str*.dll we can find, before anything asks for one.
+            _indicators.Load();
+            _rules.Load();
+            _pluginHint = _indicators.Summary() + "; " + _rules.Summary();
 
-            Strategies = new ObservableCollection<StrategyViewModel>();
-            for (int i = 0; i < StrategyCatalog.All.Count; i++)
-            {
-                Strategies.Add(new StrategyViewModel(StrategyCatalog.All[i]));
-            }
-
-            _selectedStrategy = FindStrategy(_settings.Get(KeyStrategy)) ?? Strategies[0];
-            _selectedStrategy.PropertyChanged += OnStrategyChanged;
-            _strategyHint = _selectedStrategy.Description;
+            _strategySlot = new StrategySlotViewModel();
+            RestoreStrategy(_settings.Get(KeyStrategy));
 
             _slot1 = new IndicatorSlotViewModel();
             _slot2 = new IndicatorSlotViewModel();
@@ -196,7 +192,16 @@ namespace TradingBacktest.ViewModels
         /// </summary>
         public IList<IIndicatorFactory> AvailableIndicators
         {
-            get { return _plugins.Factories; }
+            get { return _indicators.Plugins; }
+        }
+
+        /// <summary>
+        /// Rules found in the Str*.dll files at startup. Same arrangement as the indicators:
+        /// drop a DLL in and it shows up here.
+        /// </summary>
+        public IList<IStrategyFactory> AvailableStrategies
+        {
+            get { return _rules.Plugins; }
         }
 
         /// <summary>
@@ -213,26 +218,26 @@ namespace TradingBacktest.ViewModels
             get { return _slot2; }
         }
 
-        public ObservableCollection<StrategyViewModel> Strategies { get; private set; }
-
-        public StrategyViewModel SelectedStrategy
+        /// <summary>
+        /// The rule in force and its parameters. Exposed as a slot, exactly like the
+        /// indicator slots, so the UI treats both the same way.
+        /// </summary>
+        public StrategySlotViewModel SelectedStrategy
         {
-            get { return _selectedStrategy; }
+            get { return _strategySlot; }
             set
             {
-                if (value == null || ReferenceEquals(value, _selectedStrategy))
+                if (value == null || ReferenceEquals(value, _strategySlot))
                 {
                     return;
                 }
 
-                // Detach from the rule being replaced, or its edits would keep rewriting
-                // this hint after the drop-down has moved on.
-                if (_selectedStrategy != null)
+                if (_strategySlot != null)
                 {
-                    _selectedStrategy.PropertyChanged -= OnStrategyChanged;
+                    _strategySlot.PropertyChanged -= OnStrategyChanged;
                 }
 
-                if (SetProperty(ref _selectedStrategy, value))
+                if (SetProperty(ref _strategySlot, value))
                 {
                     value.PropertyChanged += OnStrategyChanged;
                     _strategyHint = value.Description;
@@ -253,13 +258,13 @@ namespace TradingBacktest.ViewModels
                 return;
             }
 
-            var strategy = sender as StrategyViewModel;
-            if (strategy == null)
+            var slot = sender as StrategySlotViewModel;
+            if (slot == null)
             {
                 return;
             }
 
-            _strategyHint = strategy.Description;
+            _strategyHint = slot.Description;
             OnPropertyChanged("StrategyHint");
         }
 
@@ -406,10 +411,18 @@ namespace TradingBacktest.ViewModels
 
                 // With no plug-in there is nothing to plot and nothing for a rule to read,
                 // so say so plainly instead of letting the rule fail on an empty list.
-                if (_plugins.Factories.Count == 0)
+                if (_indicators.Plugins.Count == 0)
                 {
                     ErrorText = "No indicators loaded. Every Ind*.dll next to the executable is started at "
                         + "startup - build the Ind.* projects, or copy their DLLs into "
+                        + NumberParser.Ellipsize(AppDomain.CurrentDomain.BaseDirectory, 70) + ".";
+                    return;
+                }
+
+                if (_rules.Plugins.Count == 0)
+                {
+                    ErrorText = "No buy/sell rules loaded. Every Str*.dll next to the executable is started "
+                        + "at startup - build the Str.* projects, or copy their DLLs into "
                         + NumberParser.Ellipsize(AppDomain.CurrentDomain.BaseDirectory, 70) + ".";
                     return;
                 }
@@ -425,7 +438,7 @@ namespace TradingBacktest.ViewModels
                 string source = Path.GetFileName(_cachedFile);
 
                 IList<IIndicator> indicators = BuildIndicators();
-                IStrategy strategy = _selectedStrategy == null ? null : _selectedStrategy.Build();
+                IStrategy strategy = _strategySlot == null ? null : _strategySlot.Build();
 
                 BacktestResult result = await Task.Run(delegate
                 {
@@ -597,7 +610,7 @@ namespace TradingBacktest.ViewModels
         /// </summary>
         private void RestoreIndicators(string serialized)
         {
-            IList<IIndicatorFactory> factories = _plugins.Factories;
+            IList<IIndicatorFactory> factories = _indicators.Plugins;
 
             if (!string.IsNullOrEmpty(serialized))
             {
@@ -630,7 +643,7 @@ namespace TradingBacktest.ViewModels
 
         private IndicatorSlotViewModel DefaultSlot(string id, int period)
         {
-            IList<IIndicatorFactory> factories = _plugins.Factories;
+            IList<IIndicatorFactory> factories = _indicators.Plugins;
             for (int i = 0; i < factories.Count; i++)
             {
                 if (!string.Equals(factories[i].Id, id, StringComparison.OrdinalIgnoreCase))
@@ -660,42 +673,22 @@ namespace TradingBacktest.ViewModels
         }
 
         /// <summary>
-        /// Restores a rule by name, taking the lookback with it when the settings carry one
-        /// ("Donchian breakout@50"). An unknown name falls back to the first rule.
+        /// Restores the rule from the settings file. The name and every parameter ride along
+        /// in one token - "DonchianBreakout(Lookback=50)" - so a rule comes back exactly as
+        /// it was left. An unknown or missing plug-in falls back to the first one found.
         /// </summary>
-        private StrategyViewModel FindStrategy(string stored)
+        private void RestoreStrategy(string stored)
         {
-            if (string.IsNullOrEmpty(stored))
+            StrategySlotViewModel restored = StrategySlotViewModel.Deserialize(stored, _rules.Plugins);
+
+            if (!restored.HasRule && _rules.Plugins.Count > 0)
             {
-                return null;
+                restored = new StrategySlotViewModel(_rules.Plugins[0]);
             }
 
-            string name = stored;
-            string lookback = null;
-
-            int at = stored.LastIndexOf('@');
-            if (at > 0)
-            {
-                name = stored.Substring(0, at);
-                lookback = stored.Substring(at + 1);
-            }
-
-            for (int i = 0; i < Strategies.Count; i++)
-            {
-                if (!string.Equals(Strategies[i].Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (lookback != null)
-                {
-                    Strategies[i].LookbackText = lookback;
-                }
-
-                return Strategies[i];
-            }
-
-            return null;
+            _strategySlot = restored;
+            _strategySlot.PropertyChanged += OnStrategyChanged;
+            _strategyHint = _strategySlot.Description;
         }
 
         /// <summary>
@@ -730,7 +723,7 @@ namespace TradingBacktest.ViewModels
             _settings.Set(KeyFrom, from);
             _settings.Set(KeyTo, to);
             _settings.Set(KeyIndicators, _slot1.Serialize() + "|" + _slot2.Serialize());
-            _settings.Set(KeyStrategy, _selectedStrategy == null ? null : _selectedStrategy.Serialize());
+            _settings.Set(KeyStrategy, _strategySlot == null ? null : _strategySlot.Serialize());
             _settings.Save();
         }
 
@@ -749,7 +742,7 @@ namespace TradingBacktest.ViewModels
             _stats.Clear();
             Add("Ticker", result.Ticker, false);
             Add("Data file", result.Source, false);
-            Add("Rule", result.Strategy, false);
+            Add("Rule", _strategySlot == null ? string.Empty : _strategySlot.Serialize(), false);
             Add("Indicators", DescribeSlots(), false);
             Add("Bars", result.Candles.Count.ToString("N0", CultureInfo.CurrentCulture), false);
             Add("Period", result.From.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture) + " - " + result.To.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture), false);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using TradingBacktest.Abstractions;
 using TradingBacktest.Mvvm;
@@ -132,7 +133,9 @@ namespace TradingBacktest.ViewModels
                     {
                         for (int i = 0; i < definitions.Count; i++)
                         {
-                            _parameters.Add(new IndicatorParameterViewModel(definitions[i]));
+                            var parameter = new IndicatorParameterViewModel(definitions[i]);
+                            parameter.PropertyChanged += OnParameterChanged;
+                            _parameters.Add(parameter);
                         }
                     }
                 }
@@ -142,6 +145,33 @@ namespace TradingBacktest.ViewModels
             }
         }
 
+        /// <summary>
+        /// A parameter changed. The indicator slot has no description to keep honest, but the
+        /// tooltip still has to show the values actually in force.
+        /// </summary>
+        private void OnParameterChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == "Value")
+            {
+                OnPropertyChanged("ParameterSummary");
+            }
+        }
+
+        /// <summary>The editor values, shown as the slot's tooltip.</summary>
+        public string ParameterSummary
+        {
+            get
+            {
+                IDictionary<string, string> values = CurrentValues();
+                var parts = new List<string>(values.Count);
+                foreach (KeyValuePair<string, string> pair in values)
+                {
+                    parts.Add(pair.Value);
+                }
+
+                return string.Join(", ", parts.ToArray());
+            }
+        }
         public bool HasIndicator
         {
             get { return _factory != null; }

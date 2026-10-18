@@ -7,7 +7,6 @@ using System.Windows.Media;
 using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
 using TradingBacktest.Services;
-using TradingBacktest.Strategies;
 
 namespace TradingBacktest.Controls
 {

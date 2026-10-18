@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using TradingBacktest.Abstractions;
 using TradingBacktest.Models;
-using TradingBacktest.Strategies;
 
 namespace TradingBacktest.Services
 {

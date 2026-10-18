@@ -1,8 +1,7 @@
 using System;
 using System.Collections.Generic;
-using TradingBacktest.Abstractions;
 
-namespace TradingBacktest.Strategies
+namespace TradingBacktest.Abstractions
 {
     /// <summary>
     /// What a strategy wants to hold from a given bar on. Long/flat only: the engine has
@@ -86,36 +85,32 @@ namespace TradingBacktest.Strategies
         public IList<Candle> Candles { get; private set; }
 
         /// <summary>
-        /// One entry per configured indicator, in slot order. A rule picks what it needs by
-        /// position, so filling the slots differently changes what the rule trades on - the
-        /// slots are a parameter, not decoration.
+        /// One entry per filled indicator slot, in slot order. A rule picks what it needs by
+        /// position, so filling the slots differently changes what it trades on - the slots
+        /// are a parameter, not decoration.
         /// </summary>
         public IList<IndicatorSeries> Series { get; private set; }
     }
 
     /// <summary>
-    /// The buy/sell rule, kept apart from both the indicators and the backtest engine: it
-    /// receives the bars plus whatever the indicators produced and answers with a list of
-    /// decisions. Swapping in a different rule needs no change anywhere else.
+    /// The buy/sell rule. It receives bars plus indicator output and answers with a list of
+    /// decisions, and knows nothing about the engine, the chart or the host - which is why
+    /// it can live in its own DLL.
+    ///
+    /// <see cref="Description"/> is read from a *configured* instance, so any wording that
+    /// quotes a parameter ("the previous 50 bars") is true for the value actually in use.
+    /// The factory's own description is static and must not quote one.
     /// </summary>
     public interface IStrategy
     {
+        /// <summary>Display name, e.g. "Donchian breakout 50".</summary>
         string Name { get; }
 
-        /// <summary>One line describing the rule, shown under the parameters.</summary>
+        /// <summary>One line describing what this configured rule will actually do.</summary>
         string Description { get; }
 
         /// <summary>Bars needed before the first decision can be made.</summary>
         int MinBars { get; }
-
-        /// <summary>
-        /// Lookback the rule exposes for tuning, or 0 for rules that have none (a crossover
-        /// takes its windows from the indicators, for instance).
-        /// </summary>
-        int Lookback { get; }
-
-        /// <summary>Returns the same rule with a different lookback. Ignored when there is none.</summary>
-        IStrategy WithLookback(int lookback);
 
         /// <summary>
         /// Produces the decisions. Returned signals are sparse - only the bars where the

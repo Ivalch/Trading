@@ -92,7 +92,7 @@
       <SubType>Code</SubType>
     </Compile>
 
-    <Compile Include="Services\IndicatorPluginLoader.cs">
+    <Compile Include="Services\PluginLoader.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Services\BacktestEngine.cs">
@@ -110,26 +110,10 @@
     <Compile Include="Services\SettingsStore.cs">
       <SubType>Code</SubType>
     </Compile>
-    <!-- Buy/sell rules: each one is an object, none of them is wired into the engine. -->
-    <Compile Include="Strategies\IStrategy.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Strategies\StrategyCatalog.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Strategies\CrossoverStrategy.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Strategies\DonchianBreakoutStrategy.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="Strategies\BuyAndHoldStrategy.cs">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="ViewModels\IndicatorSlotViewModel.cs">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="ViewModels\StrategyViewModel.cs">
+    <Compile Include="ViewModels\StrategySlotViewModel.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="ViewModels\MainViewModel.cs">
@@ -160,12 +144,30 @@
     by hand works exactly the same - and adding one here is optional.
   -->
   <ItemGroup>
+    <PluginProject Include="..\Str.Crossover\Str.Crossover.csproj" />
+    <PluginProject Include="..\Str.DonchianBreakout\Str.DonchianBreakout.csproj" />
+    <PluginProject Include="..\Str.BuyAndHold\Str.BuyAndHold.csproj" />
     <PluginProject Include="..\Ind.Sma\Ind.Sma.csproj" />
     <PluginProject Include="..\Ind.Ema\Ind.Ema.csproj" />
     <PluginProject Include="..\Ind.Rsi\Ind.Rsi.csproj" />
     <PluginProject Include="..\Ind.BollingerBands\Ind.BollingerBands.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Str.Crossover\Str.Crossover.csproj">
+      <Project>{4A7C2E19-8D63-4B05-9E14-6A3C7B0D5E10}</Project>
+      <Name>Str.Crossover</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Str.DonchianBreakout\Str.DonchianBreakout.csproj">
+      <Project>{9B5D3F72-1E48-4C7A-8D02-3F9A6E1B4C11}</Project>
+      <Name>Str.DonchianBreakout</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Str.BuyAndHold\Str.BuyAndHold.csproj">
+      <Project>{D2E6A184-3C7F-4B59-8E10-5A1B9D4F7C12}</Project>
+      <Name>Str.BuyAndHold</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="..\Ind.Sma\Ind.Sma.csproj">
       <Project>{7B1E5C42-3A8D-4F19-9C06-52E4B7D1A101}</Project>
       <Name>Ind.Sma</Name>
