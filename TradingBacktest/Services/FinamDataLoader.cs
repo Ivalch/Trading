@@ -114,6 +114,133 @@ namespace TradingBacktest.Services
             }
         }
 
+        /// <summary>
+        /// The timeframes that actually have a file for <paramref name="ticker"/>, finest
+        /// first. The drop-down is built from this, so the app never offers an intraday view
+        /// of a ticker that was only exported daily.
+        /// </summary>
+        public static IList<string> ListTimeframes(string directory, string ticker)
+        {
+            var codes = new List<string>();
+            if (!NumberParser.IsUsableDirectory(directory) || string.IsNullOrEmpty(ticker))
+            {
+                return codes;
+            }
+
+            string safe = NumberParser.ToFileNameSafe(ticker);
+
+            try
+            {
+                codes.AddRange(TimeframesFor(safe, Directory.GetFiles(directory, "*.dat")));
+            }
+            catch (Exception)
+            {
+                return new List<string>();
+            }
+
+            Timeframes.SortFinestFirst(codes);
+            return codes;
+        }
+
+        private static IEnumerable<string> TimeframesFor(string safeTicker, string[] files)
+        {
+            var found = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                string name = Path.GetFileNameWithoutExtension(files[i]);
+                if (name.IndexOf(safeTicker, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                string code = ExtractTimeframe(files[i]);
+                if (code.Length > 0 && seen.Add(code))
+                {
+                    found.Add(code);
+                }
+            }
+
+            return found;
+        }
+
+        /// <summary>
+        /// The file for one exact timeframe, or null when there is none.
+        ///
+        /// This is deliberately not <see cref="FindFile"/>: that one falls back to the
+        /// longest history when the requested timeframe is absent, which is right for
+        /// "just give me something to draw" and wrong for "the user picked minutes". Showing
+        /// daily bars because the intraday export is missing would be worse than an error.
+        ///
+        /// When several exports share a timeframe - re-exports carry a later date stamp -
+        /// the newest file name wins, because the stamp sorts chronologically.
+        /// </summary>
+        public static string FindFileForTimeframe(string directory, string ticker, string timeframe)
+        {
+            if (!NumberParser.IsUsableDirectory(directory) || string.IsNullOrEmpty(ticker) || !Timeframes.IsKnown(timeframe))
+            {
+                return null;
+            }
+
+            string safe = NumberParser.ToFileNameSafe(ticker);
+
+            try
+            {
+                string best = null;
+                string[] files = Directory.GetFiles(directory, "*.dat");
+
+                for (int i = 0; i < files.Length; i++)
+                {
+                    string name = Path.GetFileNameWithoutExtension(files[i]);
+                    if (name.IndexOf(safe, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+
+                    if (!string.Equals(ExtractTimeframe(files[i]), timeframe, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (best == null || string.CompareOrdinal(files[i], best) > 0)
+                    {
+                        best = files[i];
+                    }
+                }
+
+                return best;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The timeframe a file name ends with, or empty when it ends with something else.
+        /// The mirror of <see cref="ExtractTicker"/>: both stop at the first token that
+        /// looks like a timeframe, so a ticker may safely contain underscores.
+        /// </summary>
+        public static string ExtractTimeframe(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+            {
+                return string.Empty;
+            }
+
+            string[] parts = Path.GetFileNameWithoutExtension(fileName).Split('_');
+            for (int i = 1; i < parts.Length; i++)
+            {
+                if (IsTimeframe(parts[i]))
+                {
+                    return parts[i];
+                }
+            }
+
+            return string.Empty;
+        }
+
         /// <summary>Reads every bar of a file, oldest first.</summary>
         public static IList<Candle> ReadFile(string path)
         {

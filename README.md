@@ -38,9 +38,16 @@ no bars the app says so instead of drawing an empty chart.
 ## What the app does
 
 * **Buy/sell rule** - one of the strategies below.
-* **Indicators** - two slots, no more. Each slot picks a type and a window. The rule reads
-  them in order, so slot 1 is the fast one in a crossover. Anything on the price scale is
-  drawn with the price; an oscillator (RSI) gets its own band underneath.
+* **Bars** - the bar size to test, from `1 minute` up to `1 month`. Only the sizes the
+  chosen ticker actually has a file for are offered, so an intraday view cannot be asked
+  for over daily-only data. Switching resizes the period to what that file covers. A first
+  run opens on **daily** - the most history at a size worth reading; the coarsest file would
+  be a poor default, since this ticker's monthly history is 198 bars and the 1Y preset would
+  show twelve of them.
+* **Indicators** - two slots, no more. Each slot picks a type, a window, and optionally the
+  **coarser timeframe** to calculate it on - see below. The rule reads the slots in order,
+  so slot 1 is the fast one in a crossover. Anything on the price scale is drawn with the
+  price; an oscillator (RSI) gets its own band underneath.
 * **Period** - from/to pickers plus 1Y / 3Y / 5Y / All shortcuts, clamped to the data.
 * **Cost of operation** - a percentage charged on **both** sides of every trade. Parsed
   with either `,` or `.` as the decimal separator, always shown with two decimals.
@@ -62,6 +69,46 @@ no bars the app says so instead of drawing an empty chart.
   the bar's high to its low, and a body from open to close, green when the bar closed up and
   red when it closed down. Below that width the bodies would blur together, so the line comes
   back. Only the price pane does this; the equity curve has no open or high to draw.
+
+### Indicators on a coarser timeframe
+
+Each slot has an **on** switch: *same bars* (the default) or any coarser size the ticker has
+a file for. An SMA(20) on a minute chart can be calculated on the hourly or daily file
+instead, and is then stepped down across the minute bars.
+
+The bars come from **that timeframe's own export**, not from aggregating the chart's bars.
+That matters more than it looks:
+
+* the indicator gets real warm-up history from before the tested period, so an SMA(20) on
+  daily data already has a value on the very first minute bar;
+* the two views cannot disagree, because there is only one aggregation - the vendor's.
+
+Finam stamps every bar with the moment it **opened**, not the moment it closed - the last
+bar of a full session is stamped 23:49 because the evening session ends at 23:50. A coarser
+bar stamped `S` is therefore not finished until the bar stamped `S+1` begins, and the
+step-down obeys that:
+
+> a chart bar takes the value of the coarser bar **immediately before** the one running at
+> that moment.
+
+So a minute bar at 11:30 still shows the hour that opened at 10:00, never the one opened at
+11:00 that is still running. Two consequences fall out of the rule rather than from special
+cases: the last coarser bar is never shown, because nothing marks where it would have
+closed; and a coarser history that starts after the chart leaves the early bars empty rather
+than borrowing a value from ahead.
+
+This is the one place where a mistake would not look like a mistake. Reading a running bar
+instead would draw a perfectly smooth, entirely plausible line that is a whole coarse bar of
+lookahead - so the rule is verified bar by bar against all 66,215 minute bars rather than by
+eye.
+
+The plug-in contract does not change. An indicator is still handed a list of candles; the
+host alone decides which candles those are. A rule reads one value per chart bar either way
+and needs no idea a second resolution exists. The legend says so, e.g. `SMA 60 (1w)`.
+
+On the coarsest bar size nothing is above it, so the switch is disabled and says why
+rather than offering a list of one. A slot also refuses a finer timeframe at the source, so
+a hand-edited settings file cannot slip one past the drop-down.
 
 Sizing is all-in, rounded down to whole lots, and a decision made at the close of a bar is
 filled at the **open of the next** one, so the engine can never trade on a price it could not

@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Globalization;
 using TradingBacktest.Abstractions;
 using TradingBacktest.Mvvm;
+using TradingBacktest.Services;
 
 namespace TradingBacktest.ViewModels
 {
@@ -107,8 +108,17 @@ namespace TradingBacktest.ViewModels
     /// </summary>
     public sealed class IndicatorSlotViewModel : ObservableObject
     {
+        /// <summary>
+        /// Settings key for the timeframe. Reserved: should a plug-in ever declare a
+        /// parameter called "Tf", the plug-in wins and the slot falls back to the chart's
+        /// own bars, rather than the two fighting over one key.
+        /// </summary>
+        public const string TimeframeKey = "Tf";
+
         private readonly ObservableCollection<IndicatorParameterViewModel> _parameters = new ObservableCollection<IndicatorParameterViewModel>();
+        private readonly ObservableCollection<TimeframeOption> _timeframeOptions = new ObservableCollection<TimeframeOption>();
         private IIndicatorFactory _factory;
+        private string _timeframe = string.Empty;
 
         public IndicatorSlotViewModel()
         {
@@ -179,7 +189,115 @@ namespace TradingBacktest.ViewModels
 
         public string DisplayName
         {
-            get { return _factory == null ? "none" : _factory.Name; }
+            get
+            {
+                if (_factory == null)
+                {
+                    return "none";
+                }
+
+                return _timeframe.Length == 0
+                    ? _factory.Name
+                    : _factory.Name + " (" + Timeframes.ShortLabel(_timeframe) + ")";
+            }
+        }
+
+        /// <summary>
+        /// The coarser timeframes this slot may be calculated on, offered as "same" plus one
+        /// entry per timeframe the ticker actually has a file for. Set by the host, because
+        /// only the host knows which files exist.
+        /// </summary>
+        public ObservableCollection<TimeframeOption> TimeframeOptions
+        {
+            get { return _timeframeOptions; }
+        }
+
+        /// <summary>
+        /// Timeframe code this indicator is calculated on; empty means the chart's own bars.
+        /// A rule reading this slot sees one value per chart bar either way.
+        /// </summary>
+        public string Timeframe
+        {
+            get { return _timeframe; }
+            set
+            {
+                string code = value ?? string.Empty;
+
+                // A slot can only be calculated on something coarser than the chart. Holding
+                // that here rather than only while the options are refreshed keeps a hand
+                // edited settings file or a stale value from slipping a finer one through.
+                if (code.Length > 0 && !IsAllowed(code))
+                {
+                    code = string.Empty;
+                }
+
+                if (SetProperty(ref _timeframe, code))
+                {
+                    OnPropertyChanged("TimeframeSummary");
+                    OnPropertyChanged("DisplayName");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Whether the host has offered this code. Before the first refresh there are no
+        /// options to check against, so anything is taken and re-checked afterwards.
+        /// </summary>
+        private bool IsAllowed(string code)
+        {
+            if (_timeframeOptions.Count == 0)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < _timeframeOptions.Count; i++)
+            {
+                if (string.Equals(_timeframeOptions[i].Code, code, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Short description for the status line and tooltips.</summary>
+        public string TimeframeSummary
+        {
+            get { return _timeframe.Length == 0 ? "same bars" : "on " + Timeframes.Display(_timeframe); }
+        }
+
+        /// <summary>
+        /// Replaces the offered timeframes, keeping the current choice when it is still
+        /// allowed and falling back to "same" when it is not - otherwise switching the chart
+        /// from minutes to days would leave a slot claiming to run on an hour.
+        /// </summary>
+        public void SetTimeframeOptions(IList<TimeframeOption> options)
+        {
+            string wanted = _timeframe ?? string.Empty;
+
+            _timeframeOptions.Clear();
+            if (options != null)
+            {
+                for (int i = 0; i < options.Count; i++)
+                {
+                    _timeframeOptions.Add(options[i]);
+                }
+            }
+
+            bool allowed = wanted.Length == 0;
+            for (int i = 0; !allowed && i < _timeframeOptions.Count; i++)
+            {
+                allowed = string.Equals(_timeframeOptions[i].Code, wanted, StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Set through the field rather than the property. The combo is two-way bound to
+            // Timeframe, so emptying the list mid-swap makes it write null back here; putting
+            // the value back afterwards and announcing it is what keeps the user's choice.
+            _timeframe = allowed ? wanted : string.Empty;
+            OnPropertyChanged("Timeframe");
+            OnPropertyChanged("TimeframeSummary");
+            OnPropertyChanged("DisplayName");
         }
 
         /// <summary>The editors the UI shows, in the plug-in's order.</summary>
@@ -252,6 +370,13 @@ namespace TradingBacktest.ViewModels
 
             IDictionary<string, string> values = CurrentValues();
 
+            // Only written when it is not the default, so a settings file saved before
+            // timeframes existed still reads back as "same bars".
+            if (_timeframe.Length > 0)
+            {
+                values[TimeframeKey] = _timeframe;
+            }
+
             var keys = new List<string>();
             foreach (KeyValuePair<string, string> pair in values)
             {
@@ -310,6 +435,23 @@ namespace TradingBacktest.ViewModels
                 }
 
                 slot.LoadValues(stored);
+
+                // Only take Tf when the plug-in did not ask for a parameter by that name.
+                bool reserved = true;
+                for (int j = 0; j < slot._parameters.Count && reserved; j++)
+                {
+                    reserved = !string.Equals(slot._parameters[j].Definition.Key, TimeframeKey, StringComparison.OrdinalIgnoreCase);
+                }
+
+                if (reserved)
+                {
+                    string timeframe = null;
+                    if (stored.TryGetValue(TimeframeKey, out timeframe) && Timeframes.IsKnown(timeframe))
+                    {
+                        slot.Timeframe = timeframe;
+                    }
+                }
+
                 return slot;
             }
 

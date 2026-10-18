@@ -35,6 +35,7 @@ namespace TradingBacktest.ViewModels
         private const string KeyStrategy = "Strategy";
         private const string KeyAllowShort = "AllowShort";
         private const string KeyShortFee = "ShortAnnualFeePercent";
+        private const string KeyTimeframe = "Timeframe";
 
         private readonly BacktestEngine _engine = new BacktestEngine();
         private readonly SettingsStore _settings = new SettingsStore();
@@ -61,6 +62,13 @@ namespace TradingBacktest.ViewModels
         private IndicatorSlotViewModel _slot2;
         private ObservableCollection<StatItem> _stats = new ObservableCollection<StatItem>();
         private ObservableCollection<string> _availableTickers = new ObservableCollection<string>();
+        private ObservableCollection<TimeframeOption> _availableTimeframes = new ObservableCollection<TimeframeOption>();
+        private string _timeframe;
+
+        // Bars for the timeframes an indicator is calculated on. Keyed by file, so
+        // switching back and forth between two slots does not re-read anything.
+        private readonly Dictionary<string, IList<Candle>> _timeframeCache =
+            new Dictionary<string, IList<Candle>>(StringComparer.OrdinalIgnoreCase);
 
         // Candles are kept between runs so changing only the cost, the period or the rule
         // does not re-read the file from disk.
@@ -79,6 +87,7 @@ namespace TradingBacktest.ViewModels
             _dataDirectory = _settings.Get(KeyDirectory) ?? SuggestDirectory();
             _fromDate = _settings.GetDate(KeyFrom);
             _toDate = _settings.GetDate(KeyTo);
+            _timeframe = _settings.Get(KeyTimeframe);
 
             // Start every Ind*.dll and Str*.dll we can find, before anything asks for one.
             _indicators.Load();
@@ -98,6 +107,7 @@ namespace TradingBacktest.ViewModels
             PeriodCommand = new RelayCommand(OnPeriodPreset);
 
             ReloadTickers();
+            RefreshSlotTimeframes();
 
             // Show something on screen immediately rather than an empty frame.
             OnStart();
@@ -160,6 +170,152 @@ namespace TradingBacktest.ViewModels
         public bool ShortFeeEnabled
         {
             get { return _allowShort; }
+        }
+
+        /// <summary>
+        /// The bar size the chart shows. Only timeframes the ticker actually has a file for
+        /// are offered, so an intraday view cannot be asked for over daily data.
+        /// </summary>
+        public string Timeframe
+        {
+            get { return _timeframe; }
+            set
+            {
+                string code = value == null ? string.Empty : value.Trim();
+                if (!SetProperty(ref _timeframe, code))
+                {
+                    return;
+                }
+
+                RefreshSlotTimeframes();
+                OnPropertyChanged("TimeframeLabel");
+            }
+        }
+
+        /// <summary>Name of the chosen bar size, for the status line.</summary>
+        public string TimeframeLabel
+        {
+            get { return Timeframes.Describe(_timeframe); }
+        }
+
+        /// <summary>The timeframes available for the current ticker, finest first.</summary>
+        public ObservableCollection<TimeframeOption> AvailableTimeframes
+        {
+            get { return _availableTimeframes; }
+        }
+
+        /// <summary>
+        /// Offers each indicator slot the coarser timeframes this ticker has a file for.
+        /// Called whenever the chart's timeframe, ticker or folder changes, because all
+        /// three decide what a slot is allowed to ask for.
+        /// </summary>
+        private void RefreshSlotTimeframes()
+        {
+            var options = new List<TimeframeOption>();
+            options.Add(new TimeframeOption(Timeframes.Same, "same bars"));
+
+            IList<string> coarser = Timeframes.CoarserThan(_timeframe);
+            for (int i = 0; i < coarser.Count; i++)
+            {
+                if (HasTimeframeFile(coarser[i]))
+                {
+                    options.Add(new TimeframeOption(coarser[i], Timeframes.Display(coarser[i])));
+                }
+            }
+
+            if (_slot1 != null)
+            {
+                _slot1.SetTimeframeOptions(options);
+            }
+
+            if (_slot2 != null)
+            {
+                _slot2.SetTimeframeOptions(options);
+            }
+
+            OnPropertyChanged("HasUpperTimeframes");
+            OnPropertyChanged("UpperTimeframesHint");
+        }
+
+        /// <summary>
+        /// False when the chart is already on the coarsest bar size, so a slot has nothing to
+        /// be calculated on above it.
+        /// </summary>
+        public bool HasUpperTimeframes
+        {
+            get { return _slot1 == null || _slot1.TimeframeOptions.Count > 1; }
+        }
+
+        /// <summary>Says why the switch is disabled, instead of leaving it looking broken.</summary>
+        public string UpperTimeframesHint
+        {
+            get
+            {
+                return HasUpperTimeframes
+                    ? "Calculate this indicator on a coarser timeframe and step the result down onto these bars."
+                    : "Nothing is coarser than the chart's bar size, so both indicators use the chart's own bars.";
+            }
+        }
+
+        /// <summary>
+        /// The bar size to open on when nothing usable is stored: daily when the ticker has
+        /// it, otherwise the coarsest history on offer.
+        ///
+        /// Daily because that is this app's established preference - the file loader already
+        /// documents that a ticker with both daily and intraday exports is tested on the
+        /// daily one - and because it is the most history at a size with detail worth
+        /// reading. The coarsest file is a poor default: this ticker's monthly history is
+        /// 198 bars, of which the 1Y preset would show twelve.
+        /// </summary>
+        private string DefaultTimeframe()
+        {
+            for (int i = 0; i < _availableTimeframes.Count; i++)
+            {
+                if (string.Equals(_availableTimeframes[i].Code, "Day", StringComparison.OrdinalIgnoreCase))
+                {
+                    return _availableTimeframes[i].Code;
+                }
+            }
+
+            string coarsest = string.Empty;
+            for (int i = 0; i < _availableTimeframes.Count; i++)
+            {
+                if (coarsest.Length == 0 || Timeframes.Index(_availableTimeframes[i].Code) > Timeframes.Index(coarsest))
+                {
+                    coarsest = _availableTimeframes[i].Code;
+                }
+            }
+
+            return coarsest;
+        }
+
+        /// <summary>True when the drop-down already lists exactly these, so leave it alone.</summary>
+        private bool SameTimeframes(IList<string> available)
+        {
+            if (available.Count != _availableTimeframes.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < available.Count; i++)
+            {
+                if (!string.Equals(_availableTimeframes[i].Code, available[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool HasTimeframeFile(string timeframe)
+        {
+            return FinamDataLoader.FindFileForTimeframe(_dataDirectory, CurrentTicker(), timeframe) != null;
+        }
+
+        private string CurrentTicker()
+        {
+            return _ticker == null ? string.Empty : _ticker.Trim();
         }
 
         /// <summary>Folder holding the exported history files (*.dat).</summary>
@@ -471,6 +627,11 @@ namespace TradingBacktest.ViewModels
                     return;
                 }
 
+                // The ticker may have been typed since the lists were last read, so they are
+                // rechecked here rather than on every keystroke - the same reason the ticker
+                // drop-down is not rebuilt while the name is being entered.
+                ReloadTimeframes();
+
                 if (!EnsureDataLoaded())
                 {
                     return;
@@ -481,7 +642,7 @@ namespace TradingBacktest.ViewModels
                 string ticker = _ticker.Trim().ToUpperInvariant();
                 string source = Path.GetFileName(_cachedFile);
 
-                IList<IIndicator> indicators = BuildIndicators();
+                IList<IndicatorRequest> requests = BuildRequests();
                 IStrategy strategy = _strategySlot == null ? null : _strategySlot.Build();
 
                 var runSettings = new BacktestSettings
@@ -493,15 +654,16 @@ namespace TradingBacktest.ViewModels
 
                 BacktestResult result = await Task.Run(delegate
                 {
-                    return _engine.Run(ticker, source, _cachedCandles, runSettings, from, to, indicators, strategy);
+                    return _engine.Run(ticker, source, _cachedCandles, runSettings, from, to, requests, strategy);
                 });
 
                 Result = result;
                 RebuildStats(result);
                 StatusText = string.Format(
                     CultureInfo.CurrentCulture,
-                    "{0} - {1} bars, {2} - {3}, {4} trades, {5}",
+                    "{0} {1} - {2} bars, {3} - {4}, {5} trades, {6}",
                     ticker,
+                    Timeframes.Display(_timeframe).ToLower(CultureInfo.CurrentCulture),
                     result.Candles.Count,
                     result.From.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture),
                     result.To.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture),
@@ -526,6 +688,7 @@ namespace TradingBacktest.ViewModels
         private void ReloadTickers()
         {
             IList<string> tickers = FinamDataLoader.ListTickers(_dataDirectory);
+            ReloadTimeframes();
 
             bool keepCurrent = false;
             for (int i = 0; i < tickers.Count; i++)
@@ -554,8 +717,47 @@ namespace TradingBacktest.ViewModels
         }
 
         /// <summary>
-        /// Loads the price file for the current folder and ticker, reusing the previous
-        /// load when neither changed. Returns false and reports the reason on failure.
+        /// Rebuilds the list of bar sizes the current ticker has files for, and picks a
+        /// default when the stored one is no longer on offer - a ticker exported only
+        /// daily cannot be asked for minutes.
+        /// </summary>
+        private void ReloadTimeframes()
+        {
+            IList<string> available = FinamDataLoader.ListTimeframes(_dataDirectory, CurrentTicker());
+
+            // Read the selection before the list is touched. The drop-down is two-way bound,
+            // so emptying it can write null back into Timeframe - and reading it afterwards
+            // would see that null and quietly replace the reader's choice with the default.
+            string wanted = _timeframe ?? string.Empty;
+
+            if (!SameTimeframes(available))
+            {
+                _availableTimeframes.Clear();
+                for (int i = 0; i < available.Count; i++)
+                {
+                    _availableTimeframes.Add(new TimeframeOption(available[i], Timeframes.Display(available[i])));
+                }
+            }
+            bool keep = wanted != null && wanted.Length > 0;
+            for (int i = 0; !keep && i < _availableTimeframes.Count; i++)
+            {
+                keep = string.Equals(_availableTimeframes[i].Code, wanted, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!keep)
+            {
+                _timeframe = DefaultTimeframe();
+                OnPropertyChanged("Timeframe");
+                OnPropertyChanged("TimeframeLabel");
+            }
+
+            RefreshSlotTimeframes();
+        }
+
+        /// <summary>
+        /// Loads the price file for the current folder, ticker and timeframe, reusing the
+        /// previous load when none of them changed. Returns false and reports the reason on
+        /// failure.
         /// </summary>
         private bool EnsureDataLoaded()
         {
@@ -566,18 +768,23 @@ namespace TradingBacktest.ViewModels
                 return false;
             }
 
-            string key = NumberParser.NormalizePath(_dataDirectory) + "|" + ticker.ToUpperInvariant();
+            string key = NumberParser.NormalizePath(_dataDirectory) + "|" + ticker.ToUpperInvariant() + "|" + (_timeframe ?? string.Empty);
             if (string.Equals(key, _cachedKey, StringComparison.Ordinal))
             {
                 return true;
             }
 
-            string file = FinamDataLoader.FindFile(_dataDirectory, ticker, null);
+            string file = string.IsNullOrEmpty(_timeframe)
+                ? FinamDataLoader.FindFile(_dataDirectory, ticker, null)
+                : FinamDataLoader.FindFileForTimeframe(_dataDirectory, ticker, _timeframe);
+
             if (file == null)
             {
                 _cachedKey = string.Empty;
                 _cachedCandles = null;
-                ErrorText = "No file for ticker " + ticker + " in the chosen folder.";
+                ErrorText = string.IsNullOrEmpty(_timeframe)
+                    ? "No file for ticker " + ticker + " in the chosen folder."
+                    : "No " + Timeframes.Display(_timeframe) + " file for " + ticker + " in the chosen folder.";
                 return false;
             }
 
@@ -624,7 +831,13 @@ namespace TradingBacktest.ViewModels
 
         private string CurrentFile()
         {
-            return FinamDataLoader.FindFile(_dataDirectory, _ticker == null ? string.Empty : _ticker.Trim(), null);
+            string ticker = CurrentTicker();
+            if (string.IsNullOrEmpty(_timeframe))
+            {
+                return FinamDataLoader.FindFile(_dataDirectory, ticker, null);
+            }
+
+            return FinamDataLoader.FindFileForTimeframe(_dataDirectory, ticker, _timeframe);
         }
 
         /// <summary>
@@ -632,15 +845,15 @@ namespace TradingBacktest.ViewModels
         /// plug-ins have already been validated by the loader; anything they throw here is
         /// caught by the run and shown as an error.
         /// </summary>
-        private IList<IIndicator> BuildIndicators()
+        private IList<IndicatorRequest> BuildRequests()
         {
-            var indicators = new List<IIndicator>(2);
-            AddIfFilled(indicators, _slot1);
-            AddIfFilled(indicators, _slot2);
-            return indicators;
+            var requests = new List<IndicatorRequest>(2);
+            AddIfFilled(requests, _slot1);
+            AddIfFilled(requests, _slot2);
+            return requests;
         }
 
-        private static void AddIfFilled(List<IIndicator> indicators, IndicatorSlotViewModel slot)
+        private void AddIfFilled(List<IndicatorRequest> requests, IndicatorSlotViewModel slot)
         {
             if (slot == null || !slot.HasIndicator)
             {
@@ -648,10 +861,51 @@ namespace TradingBacktest.ViewModels
             }
 
             IIndicator built = slot.Build();
-            if (built != null)
+            if (built == null)
             {
-                indicators.Add(built);
+                return;
             }
+
+            if (string.IsNullOrEmpty(slot.Timeframe))
+            {
+                requests.Add(IndicatorRequest.On(built));
+                return;
+            }
+
+            requests.Add(IndicatorRequest.OnTimeframe(built, LoadTimeframe(slot.Timeframe), slot.Timeframe));
+        }
+
+        /// <summary>
+        /// The bars of another timeframe, read once and kept. A missing file is an error
+        /// rather than a silent fallback: an indicator quietly calculated on the wrong bars
+        /// is the one failure here that would not look like a failure.
+        /// </summary>
+        private IList<Candle> LoadTimeframe(string timeframe)
+        {
+            string ticker = CurrentTicker();
+            string file = FinamDataLoader.FindFileForTimeframe(_dataDirectory, ticker, timeframe);
+            if (file == null)
+            {
+                throw new InvalidOperationException(
+                    "There is no " + Timeframes.Display(timeframe) + " file for " + ticker
+                    + " in the chosen folder, so an indicator cannot be calculated on it.");
+            }
+
+            IList<Candle> cached;
+            if (_timeframeCache.TryGetValue(file, out cached))
+            {
+                return cached;
+            }
+
+            IList<Candle> candles = FinamDataLoader.ReadFile(file);
+            if (candles.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "The " + Timeframes.Display(timeframe) + " file " + Path.GetFileName(file) + " contains no readable bars.");
+            }
+
+            _timeframeCache[file] = candles;
+            return candles;
         }
 
         /// <summary>
@@ -771,6 +1025,7 @@ namespace TradingBacktest.ViewModels
             _settings.Set(KeyDirectory, _dataDirectory);
             _settings.Set(KeyTicker, _ticker == null ? null : _ticker.Trim());
             _settings.Set(KeyCost, settings.CostPerOperationPercent);
+            _settings.Set(KeyTimeframe, _timeframe ?? string.Empty);
             _settings.Set(KeyAllowShort, settings.AllowShort);
             _settings.Set(KeyShortFee, settings.ShortAnnualFeePercent);
             _settings.Set(KeyFrom, from);

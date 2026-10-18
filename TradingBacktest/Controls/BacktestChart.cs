@@ -79,6 +79,9 @@ namespace TradingBacktest.Controls
         /// </summary>
         private const double MinCandleBarWidth = 3.0;
 
+        /// <summary>Narrowest window that still gets a date and a time on the axis.</summary>
+        private const int TimeLabelSpan = 240;
+
         private int _hoverIndex = -1;
         private double _pixelsPerDip = 1.0;
 
@@ -97,6 +100,7 @@ namespace TradingBacktest.Controls
         private Rect _equityPane;
         private bool _hasOscillator;
         private bool _candles;
+        private bool _intraday;
         private double _priceMin;
         private double _priceMax;
         private double _oscillatorMin;
@@ -348,6 +352,7 @@ namespace TradingBacktest.Controls
 
             // One candle per bar, but only once the bars are wide enough to tell apart.
             _candles = _plot.Width / Math.Max(1, _span - 1) >= MinCandleBarWidth;
+            _intraday = IsFinerThanADay(result);
 
             _hasOscillator = false;
             for (int i = 0; i < result.Lines.Count; i++)
@@ -406,6 +411,39 @@ namespace TradingBacktest.Controls
             int requested = _span <= 0 ? count : _span;
             _span = Math.Max(Math.Min(MinVisibleBars, count), Math.Min(count, requested));
             _firstIndex = count > _span ? Math.Max(0, Math.Min(count - _span, _firstIndex)) : 0;
+        }
+
+        /// <summary>
+        /// True when the bars are finer than a day, worked out from the shortest gap between
+        /// them rather than told to the chart - a daily series has gaps of a day or more, an
+        /// hourly one of an hour or so. The gap is the shortest on purpose: overnight and
+        /// weekend breaks are long, and a session's own spacing is what identifies the size.
+        /// </summary>
+        private static bool IsFinerThanADay(BacktestResult result)
+        {
+            double shortest = double.MaxValue;
+            for (int i = 1; i < result.Candles.Count; i++)
+            {
+                double hours = (result.Candles[i].Date - result.Candles[i - 1].Date).TotalHours;
+                if (hours > 0 && hours < shortest)
+                {
+                    shortest = hours;
+                }
+            }
+
+            return shortest < 12.0;
+        }
+
+        /// <summary>
+        /// Axis and crosshair text for one bar. With bars finer than a day a bare date says
+        /// nothing - forty of them can sit inside a single morning - so the time is shown
+        /// while the window is narrow enough for it to mean anything.
+        /// </summary>
+        private string BarLabel(DateTime date)
+        {
+            return _intraday && _span <= TimeLabelSpan
+                ? date.ToString("dd.MM HH:mm", CultureInfo.CurrentCulture)
+                : date.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture);
         }
 
         private void ComputePriceRange(BacktestResult result)
@@ -634,7 +672,10 @@ namespace TradingBacktest.Controls
             if (baseY > _equityPane.Y && baseY < _equityPane.Bottom)
             {
                 dc.DrawLine(BenchmarkPen, new Point(_equityPane.X, baseY), new Point(_equityPane.Right, baseY));
-                DrawText(dc, "capital", 10, LabelBrush, _equityPane.X + 4, baseY - 13, false, false);
+
+                // Against the right edge, not the left: the legend sits at the top left, and
+                // when equity holds near the starting capital the line is right under it.
+                DrawText(dc, "capital", 10, LabelBrush, _equityPane.Right - 6, baseY - 6, false, true);
             }
         }
 
@@ -651,7 +692,7 @@ namespace TradingBacktest.Controls
                     index = _windowEnd - 1;
                 }
 
-                string label = result.Candles[index].Date.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture);
+                string label = BarLabel(result.Candles[index].Date);
                 double x = X(index);
                 bool rightAligned = i == marks - 1;
                 DrawText(dc, label, 10.5, LabelBrush, rightAligned ? x - 4 : x, _plot.Bottom + 4, false, rightAligned);
@@ -966,7 +1007,7 @@ namespace TradingBacktest.Controls
 
             var lines = new List<string>
             {
-                candle.Date.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture),
+                BarLabel(candle.Date),
                 "close  " + NumberParser.FormatMoney(candle.Close)
             };
 

@@ -79,7 +79,7 @@ namespace TradingBacktest.Services
             BacktestSettings settings,
             DateTime from,
             DateTime to,
-            IList<IIndicator> indicators,
+            IList<IndicatorRequest> requests,
             IStrategy strategy)
         {
             if (allCandles == null)
@@ -97,13 +97,18 @@ namespace TradingBacktest.Services
                 throw new ArgumentNullException("settings");
             }
 
+            if (requests == null)
+            {
+                throw new ArgumentNullException("requests");
+            }
+
             List<Candle> range = Slice(allCandles, from, to);
             if (range.Count == 0)
             {
                 throw new InvalidOperationException("No bars in the selected period.");
             }
 
-            IList<IndicatorSeries> series = Calculate(indicators, range);
+            IList<IndicatorSeries> series = Calculate(requests, range);
             IList<Signal> signals = strategy.GenerateSignals(new StrategyContext(range, series));
 
             int bars = range.Count;
@@ -207,33 +212,99 @@ namespace TradingBacktest.Services
         }
 
         /// <summary>
-        /// Runs every indicator over the bars, keeping the declared order so a rule can
-        /// refer to them by position.
+        /// Runs every indicator over the bars it was asked for, keeping the declared order so
+        /// a rule can refer to them by position.
+        ///
+        /// An indicator on a coarser timeframe is calculated over that timeframe's own bars
+        /// and then spread back across the chart's bars, so from here on everything is one
+        /// value per chart bar and nothing downstream has to know a second resolution exists.
         /// </summary>
-        private static IList<IndicatorSeries> Calculate(IList<IIndicator> indicators, IList<Candle> candles)
+        private static IList<IndicatorSeries> Calculate(IList<IndicatorRequest> requests, IList<Candle> candles)
         {
             var series = new List<IndicatorSeries>();
-            if (indicators == null)
+            if (requests == null)
             {
                 return series;
             }
 
-            for (int i = 0; i < indicators.Count; i++)
+            for (int i = 0; i < requests.Count; i++)
             {
-                IIndicator indicator = indicators[i];
-                if (indicator == null)
+                IndicatorRequest request = requests[i];
+                if (request == null || request.Indicator == null)
                 {
                     continue;
                 }
 
-                IndicatorResult result = indicator.Calculate(candles);
-                if (result != null && !result.IsEmpty)
+                IList<Candle> source = request.UsesHigherTimeframe ? request.HigherTimeframeCandles : candles;
+
+                IndicatorResult result = request.Indicator.Calculate(source);
+                if (result == null || result.IsEmpty)
                 {
-                    series.Add(new IndicatorSeries(indicator, result));
+                    continue;
                 }
+
+                if (request.UsesHigherTimeframe)
+                {
+                    result = SpreadDown(result, source, candles, request.Timeframe);
+                }
+
+                series.Add(new IndicatorSeries(request.Indicator, result));
             }
 
             return series;
+        }
+
+        /// <summary>
+        /// Stretches a coarser timeframe's result across the chart's bars.
+        ///
+        /// The export stamps every bar with the moment it OPENED, not the moment it closed -
+        /// the last bar of a full session is stamped 23:49 because the evening session ends
+        /// at 23:50. So a coarser bar stamped S is only finished at the stamp of the next
+        /// one, and a chart bar may be given nothing but the coarser bars already finished.
+        ///
+        /// Concretely, a chart bar at T takes the value of the coarser bar immediately
+        /// BEFORE the one running at T. A minute bar at 11:30 still shows the hour that
+        /// opened at 10:00, never the one opened at 11:00 that is still running. Taking
+        /// the running bar instead would look perfectly smooth on the chart and be a whole
+        /// coarse bar of lookahead.
+        ///
+        /// Consequences that follow from that rule rather than from special cases: the last
+        /// coarser bar is never shown, because nothing marks where it would have closed;
+        /// and a coarser history that starts after the chart leaves NaN rather than
+        /// borrowing a value from ahead.
+        /// </summary>
+        private static IndicatorResult SpreadDown(IndicatorResult result, IList<Candle> coarse, IList<Candle> chart, string timeframe)
+        {
+            string suffix = " (" + Timeframes.ShortLabel(timeframe) + ")";
+            var lines = new List<IndicatorLine>(result.Lines.Count);
+
+            for (int line = 0; line < result.Lines.Count; line++)
+            {
+                IndicatorLine source = result.Lines[line];
+                var values = new double[chart.Count];
+
+                int pointer = 0;
+                for (int i = 0; i < chart.Count; i++)
+                {
+                    DateTime at = chart[i].Date;
+
+                    // The bar running at or before this moment; whatever it is, it is still
+                    // open, so what is shown is the one before it.
+                    while (pointer + 1 < coarse.Count && coarse[pointer + 1].Date <= at)
+                    {
+                        pointer++;
+                    }
+
+                    int finished = pointer - 1;
+                    values[i] = finished >= 0 && finished < source.Values.Length
+                        ? source.Values[finished]
+                        : double.NaN;
+                }
+
+                lines.Add(new IndicatorLine(source.Label + suffix, values, source.Color, source.UsesPriceScale));
+            }
+
+            return new IndicatorResult(lines, result.Levels);
         }
 
         /// <summary>Keeps the bars inside the inclusive date range, preserving order.</summary>

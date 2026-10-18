@@ -5,9 +5,9 @@
         xmlns:viewModels="clr-namespace:TradingBacktest.ViewModels"
         Title="Trading Backtest"
         Height="800"
-        Width="1620"
+        Width="1680"
         MinHeight="560"
-        MinWidth="1600"
+        MinWidth="1640"
         Background="#FFF4F6F8"
         TextOptions.TextFormattingMode="Display"
         UseLayoutRounding="True">
@@ -42,10 +42,11 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="340" />
-                    <ColumnDefinition Width="310" />
-                    <ColumnDefinition Width="290" />
-                    <ColumnDefinition Width="172" />
-                    <ColumnDefinition Width="290" />
+                    <ColumnDefinition Width="112" />
+                    <ColumnDefinition Width="250" />
+                    <ColumnDefinition Width="280" />
+                    <ColumnDefinition Width="168" />
+                    <ColumnDefinition Width="280" />
                     <ColumnDefinition Width="118" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
@@ -65,10 +66,21 @@
                               Text="{Binding Ticker, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
 
+                <!-- The bar size itself. Built from the files this ticker actually has, so
+                     an intraday view cannot be asked for over daily-only data. -->
                 <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,8,5">
+                    <TextBlock Text="Bars" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding AvailableTimeframes}"
+                              SelectedValuePath="Code"
+                              SelectedValue="{Binding Timeframe}"
+                              DisplayMemberPath="Display"
+                              ToolTip="Bar size of the chart. Only sizes with a file for this ticker are offered." />
+                </StackPanel>
+
+                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,8,5">
                     <TextBlock Text="Data folder" Style="{StaticResource FieldLabel}" />
                     <StackPanel Orientation="Horizontal">
-                        <TextBox Style="{StaticResource InputTextBox}" Width="214"
+                        <TextBox Style="{StaticResource InputTextBox}" Width="172"
                                  Text="{Binding DataDirectory, UpdateSourceTrigger=PropertyChanged}" />
                         <Button Content="Browse..."
                                 Style="{StaticResource SecondaryButton}"
@@ -78,7 +90,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,8,5">
+                <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,8,5">
                     <TextBlock Text="Period" Style="{StaticResource FieldLabel}" />
                     <StackPanel Orientation="Horizontal">
                         <DatePicker SelectedDate="{Binding FromDate}" ToolTip="First day of the tested period" />
@@ -87,7 +99,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,8,5">
+                <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,8,5">
                     <TextBlock Text="Quick period" Style="{StaticResource FieldLabel}" />
                     <StackPanel Orientation="Horizontal">
                         <Button Content="1Y" Style="{StaticResource ChipButton}" Command="{Binding PeriodCommand}" CommandParameter="1Y" />
@@ -97,7 +109,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,8,5">
+                <StackPanel Grid.Row="0" Grid.Column="5" Margin="0,0,8,5">
                     <TextBlock Text="Cost, %" Style="{StaticResource FieldLabel}"
                                ToolTip="Commission, spread and tax charged on each buy and each sell, in percent" />
                     <StackPanel Orientation="Horizontal">
@@ -132,7 +144,7 @@
                 </StackPanel>
 
                 <Button Grid.Row="0"
-                        Grid.Column="5"
+                        Grid.Column="6"
                         Grid.ColumnSpan="2"
                         Content="Start"
                         MinWidth="104"
@@ -176,7 +188,7 @@
                   the IIndicatorFactory instances the plug-in loader started, and the editors
                   next to it are generated from whatever that factory declared.
                 -->
-                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,8,0">
+                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="5" Margin="0,0,8,0">
                     <TextBlock Text="Indicators" Style="{StaticResource FieldLabel}" />
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -185,7 +197,7 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,14,0">
-                            <ComboBox Width="112"
+                            <ComboBox Width="96"
                                       ItemsSource="{Binding AvailableIndicators}"
                                       SelectedItem="{Binding Indicator1.Factory}"
                                       DisplayMemberPath="Name"
@@ -208,10 +220,23 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <!-- The host's own switch, not a plug-in parameter: only the host
+                                 knows which files exist for this ticker. -->
+                            <TextBlock Text="on" Style="{StaticResource InlineLabel}"
+                                       VerticalAlignment="Center" Margin="8,0,3,0"
+                                       ToolTip="{Binding UpperTimeframesHint}" />
+                            <ComboBox Width="86" VerticalAlignment="Center"
+                                      ItemsSource="{Binding Indicator1.TimeframeOptions}"
+                                      SelectedValuePath="Code"
+                                      SelectedValue="{Binding Indicator1.Timeframe}"
+                                      DisplayMemberPath="Display"
+                                      IsEnabled="{Binding HasUpperTimeframes}"
+                                      ToolTip="{Binding UpperTimeframesHint}" />
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <ComboBox Width="112"
+                            <ComboBox Width="96"
                                       ItemsSource="{Binding AvailableIndicators}"
                                       SelectedItem="{Binding Indicator2.Factory}"
                                       DisplayMemberPath="Name"
@@ -234,12 +259,23 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <TextBlock Text="on" Style="{StaticResource InlineLabel}"
+                                       VerticalAlignment="Center" Margin="8,0,3,0"
+                                       ToolTip="{Binding UpperTimeframesHint}" />
+                            <ComboBox Width="86" VerticalAlignment="Center"
+                                      ItemsSource="{Binding Indicator2.TimeframeOptions}"
+                                      SelectedValuePath="Code"
+                                      SelectedValue="{Binding Indicator2.Timeframe}"
+                                      DisplayMemberPath="Display"
+                                      IsEnabled="{Binding HasUpperTimeframes}"
+                                      ToolTip="{Binding UpperTimeframesHint}" />
                         </StackPanel>
                     </Grid>
                 </StackPanel>
 
                 <!-- row 2: one thin line of feedback -->
-                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="7" Margin="0,7,0,0">
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="8" Margin="0,7,0,0">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{Binding ErrorText}" Foreground="{StaticResource ErrorBrush}" />
                         <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedTextBrush}" />
